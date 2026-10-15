@@ -1,6 +1,5 @@
 import { prisma } from '@/lib/prisma'
-import { NotFoundError } from '@/lib/auth'
-import { parseDateInput } from '@/lib/dates'
+import { NotFoundError, ConflictError } from '@/lib/auth'
 import type { CreateClientInput, UpdateClientInput, ListClientsInput } from '@/schemas/client'
 
 export async function createClient(ownerId: string, input: CreateClientInput) {
@@ -9,7 +8,7 @@ export async function createClient(ownerId: string, input: CreateClientInput) {
       ownerId,
       name: input.name.trim(),
       phone: input.phone.trim(),
-      birthday: input.birthday ? parseDateInput(input.birthday) : null,
+      birthday: input.birthday ? new Date(input.birthday) : null,
       notes: input.notes ?? null,
     },
   })
@@ -66,7 +65,7 @@ export async function updateClient(ownerId: string, id: string, input: UpdateCli
       ...(input.name !== undefined && { name: input.name.trim() }),
       ...(input.phone !== undefined && { phone: input.phone.trim() }),
       ...(input.birthday !== undefined && {
-        birthday: input.birthday ? parseDateInput(input.birthday) : null,
+        birthday: input.birthday ? new Date(input.birthday) : null,
       }),
       ...(input.notes !== undefined && { notes: input.notes }),
     },

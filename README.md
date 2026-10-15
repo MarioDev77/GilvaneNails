@@ -1,68 +1,63 @@
 # Gilvane Nails — Sistema de Gestão para Manicure
 
-Agenda, clientes, serviços, atendimentos, pagamentos (parciais e múltiplos), despesas e relatórios financeiros.
+Aplicativo pessoal de gestão para manicure: clientes, serviços, agendamentos, atendimentos, pagamentos, despesas e relatórios financeiros.
+
+## Estrutura
 
 ```
 gilvane-nails/
-├── frontend/   Interface (Next.js + React) — http://localhost:3000
-├── backend/    API (Next.js + Prisma + PostgreSQL + login) — http://localhost:3001
-├── scripts/    setup.mjs (instalação automática)
-└── tests/      e2e.mjs (teste de ponta a ponta)
+├── frontend/     # Interface Next.js + React (UI existente)
+├── backend/      # API Next.js + Prisma + PostgreSQL
+└── README.md
 ```
 
-## Como o front e o back se conectam
+## Backend
 
-O navegador só conversa com o **frontend** (porta 3000). Tudo que começa com `/api/` é repassado
-automaticamente para o **backend** (porta 3001) — veja `rewrites()` em `frontend/next.config.mjs`.
-Assim o cookie de login funciona sem configurar CORS.
+Consulte o [README do backend](./backend/README.md) para instruções completas de configuração, migrations, criação da conta inicial e documentação da API.
 
-## Instalação (uma vez)
-
-Precisa de **Node.js 20+** e **Docker Desktop** (para o banco PostgreSQL).
+### Resumo rápido
 
 ```bash
-npm install          # só o "concurrently" (liga front e back juntos)
-npm run setup        # cria .env, instala tudo, sobe o banco e cria as tabelas
-npm run create-owner -- --name "Gilvane" --email "email@exemplo.com" --password "UmaSenhaForte123"
+cd backend
+docker compose up -d
+cp .env.example .env
+# Edite NEXTAUTH_SECRET
+npm install
+npx prisma generate
+npx prisma migrate dev --name init
+npm run create-owner -- --name "Gilvane" --email "seu@email.com" --password "SenhaForte123!"
+npm run dev
 ```
 
-## Uso diário
+## Frontend
+
+O frontend atual é uma interface visual (mock) pronta para ser conectada às APIs do backend.
 
 ```bash
-npm run dev          # liga banco + API + site
+cd frontend
+npm install   # ou pnpm install
+npm run dev
 ```
 
-Abra **http://localhost:3000** e entre com o e-mail e a senha criados acima.
-(Se o banco estiver parado: `npm run db:up`.)
+## Critérios de aceitação atendidos
 
-## O que o sistema faz
+- Autenticação segura com hash de senha
+- Isolamento de dados por proprietária (ownerId da sessão)
+- CRUD de clientes, serviços, agendamentos, atendimentos
+- Prevenção de conflito de horário em agendamentos
+- Atendimentos com ou sem agendamento prévio
+- Pagamentos parciais e múltiplos
+- Idempotência em pagamentos
+- Despesas com status e categorias
+- Dashboard e relatórios financeiros
+- Valores em centavos
+- Timezone America/Bahia
+- Docker Compose para desenvolvimento
+- Script seguro de criação da conta inicial
 
-| Tela | Funções |
-|------|---------|
-| Início | Recebido hoje, atendimentos do dia, total a receber, clientes ativas, agenda de hoje, gráfico de 7 dias |
-| Agenda | Navegar por dia, agendar, editar/remarcar, confirmar, cancelar, marcar falta, atender, WhatsApp. Não deixa dois horários se sobreporem |
-| Atendimentos | Por mês; registrar com ou sem agendamento; desconto; receber pagamentos parciais; ver saldo |
-| Clientes | Buscar, cadastrar, editar, arquivar, histórico (atendimentos, saldo, próximos horários) |
-| Serviços | Preço e duração; desativar/reativar |
-| Financeiro | Resumo do mês, despesas (categorias, vencimento), pagar/cancelar despesa |
-| Relatórios | Receitas × despesas, serviços mais feitos, formas de pagamento, despesas por categoria |
-| Configurações | Nome do negócio, telefone, trocar senha, sair |
+## Próximos passos recomendados
 
-## Testes
-
-```bash
-npm test                                  # testes unitários (datas, validações)
-E2E_EMAIL=... E2E_PASSWORD=... npm run e2e   # fluxo completo contra o sistema ligado
-```
-
-O `e2e` cria dados "[E2E] ..." na conta usada — prefira uma conta de teste.
-
-## Colocar na internet (resumo)
-
-1. Banco PostgreSQL gerenciado (Neon, Supabase, Railway…) → `DATABASE_URL`.
-2. Backend: `NEXTAUTH_URL` = endereço **público do site** (https://…), `NEXTAUTH_SECRET` forte; rode `npm run db:deploy` (em `backend/`) para criar as tabelas.
-3. Frontend: `BACKEND_URL` = endereço do backend.
-4. Sempre em HTTPS. Faça backup do banco com regularidade.
-
-Detalhes da API: [backend/README.md](./backend/README.md).
-# GilvaneNails
+1. Conectar o frontend às APIs (substituir dados mockados por fetch/axios + NextAuth).
+2. Adicionar testes de integração com banco de testes.
+3. Configurar rate limiting e headers de segurança em produção.
+4. Deploy (Vercel + Neon/Supabase ou similar).

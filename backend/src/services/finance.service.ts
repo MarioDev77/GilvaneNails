@@ -1,7 +1,6 @@
 import { prisma } from '@/lib/prisma'
-import { ConflictError, NotFoundError, ValidationError } from '@/lib/auth'
-import { formatLocal, getDayBounds, getMonthBounds, parseDateInput } from '@/lib/dates'
-import { addDays } from 'date-fns'
+import { NotFoundError, ValidationError } from '@/lib/auth'
+import { getDayBounds, getMonthBounds } from '@/lib/dates'
 import type {
   CreateExpenseInput,
   UpdateExpenseInput,
@@ -24,8 +23,8 @@ export async function createExpense(ownerId: string, input: CreateExpenseInput) 
       categoryId: input.categoryId ?? null,
       description: input.description.trim(),
       amountCents: input.amountCents,
-      incurredAt: parseDateInput(input.incurredAt),
-      dueAt: input.dueAt ? parseDateInput(input.dueAt) : null,
+      incurredAt: new Date(input.incurredAt),
+      dueAt: input.dueAt ? new Date(input.dueAt) : null,
       paymentMethod: input.paymentMethod ?? null,
       notes: input.notes ?? null,
       status: 'PENDING',
@@ -84,34 +83,20 @@ export async function getExpenseById(ownerId: string, id: string) {
 }
 
 export async function updateExpense(ownerId: string, id: string, input: UpdateExpenseInput) {
-  const existing = await getExpenseById(ownerId, id)
-
-  if (input.categoryId) {
-    const cat = await prisma.expenseCategory.findFirst({
-      where: { id: input.categoryId, ownerId },
-    })
-    if (!cat) throw new NotFoundError('Categoria não encontrada')
-  }
-
-  // Mantém status e data de pagamento coerentes
-  let paidAt: Date | null | undefined
-  if (input.status === 'PAID' && existing.status !== 'PAID') paidAt = new Date()
-  if (input.status && input.status !== 'PAID') paidAt = null
-
+  await getExpenseById(ownerId, id)
   return prisma.expense.update({
     where: { id },
     data: {
       ...(input.categoryId !== undefined && { categoryId: input.categoryId }),
       ...(input.description !== undefined && { description: input.description.trim() }),
       ...(input.amountCents !== undefined && { amountCents: input.amountCents }),
-      ...(input.incurredAt && { incurredAt: parseDateInput(input.incurredAt) }),
+      ...(input.incurredAt && { incurredAt: new Date(input.incurredAt) }),
       ...(input.dueAt !== undefined && {
-        dueAt: input.dueAt ? parseDateInput(input.dueAt) : null,
+        dueAt: input.dueAt ? new Date(input.dueAt) : null,
       }),
       ...(input.paymentMethod !== undefined && { paymentMethod: input.paymentMethod }),
       ...(input.notes !== undefined && { notes: input.notes }),
       ...(input.status && { status: input.status }),
-      ...(paidAt !== undefined && { paidAt }),
     },
     include: { category: { select: { id: true, name: true } } },
   })
@@ -149,77 +134,101 @@ export async function cancelExpense(ownerId: string, id: string) {
   })
 }
 
-/** Total a receber (saldo de todos os atendimentos), calculado direto no banco. */
-export async function getReceivablesCents(ownerId: string): Promise<number> {
-  const rows = await prisma.$queryRaw<{ total: bigint | number | null }[]>`
-    SELECT COALESCE(SUM(GREATEST(a."priceCents" - a."discountCents" - COALESCE(p.paid, 0), 0)), 0) AS total
-    FROM attendances a
-    LEFT JOIN (
-      SELECT "attendanceId", SUM("amountCents") AS paid
-      FROM payments
-      GROUP BY "attendanceId"
-    ) p ON p."attendanceId" = a.id
-    WHERE a."ownerId" = ${ownerId}`
-  return Number(rows[0]?.total ?? 0)
-}
-
 export async function getFinancialSummary(
   ownerId: string,
   startDate?: string,
   endDate?: string
 ) {
-  const { start, end } =
-    startDate && endDate
-      ? { start: getDayBounds(startDate).start, end: getDayBounds(endDate).end }
-      : getMonthBounds(new Date())
+  let start: Date
+  let end: Date
 
-  const [payments, paidExpenses, pendingExpenses, billing, receivables] = await Promise.all([
+  if (startDate && endDate) {
+    start = getDayBounds(startDate).start
+    end = getDayBounds(endDate).end
+  } else {
+    // Default: current month
+    const bounds = getMonthBounds(new Date())
+    start = bounds.start
+    end = bounds.end
+  }
+
+  const [payments, paidExpenses, pendingExpenses, attendances] = await Promise.all([
     prisma.payment.aggregate({
-      where: { ownerId, paidAt: { gte: start, lte: end } },
+      where: {
+        ownerId,
+        paidAt: { gte: start, lte: end },
+      },
       _sum: { amountCents: true },
     }),
     prisma.expense.aggregate({
-      where: { ownerId, status: 'PAID', paidAt: { gte: start, lte: end } },
+      where: {
+        ownerId,
+        status: 'PAID',
+        paidAt: { gte: start, lte: end },
+      },
       _sum: { amountCents: true },
     }),
     prisma.expense.aggregate({
-      where: { ownerId, status: 'PENDING' },
+      where: {
+        ownerId,
+        status: 'PENDING',
+      },
       _sum: { amountCents: true },
     }),
-    prisma.attendance.aggregate({
-      where: { ownerId, performedAt: { gte: start, lte: end } },
-      _sum: { priceCents: true, discountCents: true },
+    prisma.attendance.findMany({
+      where: {
+        ownerId,
+        performedAt: { gte: start, lte: end },
+      },
+      include: { payments: true },
     }),
-    getReceivablesCents(ownerId),
   ])
 
   const incomeReceived = payments._sum.amountCents ?? 0
   const expensesPaid = paidExpenses._sum.amountCents ?? 0
+  const expensesPending = pendingExpenses._sum.amountCents ?? 0
+
+  let grossBilling = 0
+  let totalDiscounts = 0
+  let receivables = 0
+
+  for (const att of attendances) {
+    const due = att.priceCents - att.discountCents
+    const paid = att.payments.reduce((s, p) => s + p.amountCents, 0)
+    grossBilling += att.priceCents
+    totalDiscounts += att.discountCents
+    receivables += Math.max(0, due - paid)
+  }
+
+  // Also consider older attendances with pending balance? For simplicity, only period
+  // Better: global receivables
+  const allPendingAttendances = await prisma.attendance.findMany({
+    where: { ownerId },
+    include: { payments: true },
+  })
+  let totalReceivables = 0
+  for (const att of allPendingAttendances) {
+    const due = att.priceCents - att.discountCents
+    const paid = att.payments.reduce((s, p) => s + p.amountCents, 0)
+    totalReceivables += Math.max(0, due - paid)
+  }
 
   return {
     period: { start, end },
     incomeReceivedCents: incomeReceived,
     expensesPaidCents: expensesPaid,
     cashBalanceCents: incomeReceived - expensesPaid,
-    expensesPendingCents: pendingExpenses._sum.amountCents ?? 0,
-    grossBillingCents: billing._sum.priceCents ?? 0,
-    totalDiscountsCents: billing._sum.discountCents ?? 0,
-    receivablesCents: receivables,
-    netResultCents: incomeReceived - expensesPaid,
+    expensesPendingCents: expensesPending,
+    grossBillingCents: grossBilling,
+    totalDiscountsCents: totalDiscounts,
+    receivablesCents: totalReceivables,
+    netResultCents: incomeReceived - expensesPaid, // simplified
   }
 }
 
 export async function getDashboard(ownerId: string) {
-  const now = new Date()
-  const todayBounds = getDayBounds(now)
-  const monthBounds = getMonthBounds(now)
-  // últimos 7 dias (hoje incluído), no fuso local
-  const weekStart = getDayBounds(addDays(todayBounds.start, -6)).start
-
-  const appointmentInclude = {
-    client: { select: { id: true, name: true } },
-    service: { select: { id: true, name: true } },
-  }
+  const todayBounds = getDayBounds(new Date())
+  const monthBounds = getMonthBounds(new Date())
 
   const [
     todayPayments,
@@ -229,74 +238,62 @@ export async function getDashboard(ownerId: string) {
     upcoming,
     monthPayments,
     monthExpenses,
-    receivablesCents,
-    activeClients,
-    newClientsMonth,
-    weekPayments,
-    weekExpenses,
   ] = await Promise.all([
     prisma.payment.aggregate({
       where: { ownerId, paidAt: { gte: todayBounds.start, lte: todayBounds.end } },
       _sum: { amountCents: true },
     }),
     prisma.expense.aggregate({
-      where: { ownerId, status: 'PAID', paidAt: { gte: todayBounds.start, lte: todayBounds.end } },
+      where: {
+        ownerId,
+        status: 'PAID',
+        paidAt: { gte: todayBounds.start, lte: todayBounds.end },
+      },
       _sum: { amountCents: true },
     }),
     prisma.attendance.count({
-      where: { ownerId, performedAt: { gte: todayBounds.start, lte: todayBounds.end } },
+      where: {
+        ownerId,
+        performedAt: { gte: todayBounds.start, lte: todayBounds.end },
+      },
     }),
     prisma.appointment.findMany({
-      where: { ownerId, startsAt: { gte: todayBounds.start, lte: todayBounds.end } },
+      where: {
+        ownerId,
+        startsAt: { gte: todayBounds.start, lte: todayBounds.end },
+      },
       orderBy: { startsAt: 'asc' },
-      include: { ...appointmentInclude, attendance: { select: { id: true } } },
+      include: {
+        client: { select: { id: true, name: true } },
+        service: { select: { id: true, name: true } },
+      },
     }),
     prisma.appointment.findMany({
-      where: { ownerId, startsAt: { gte: now }, status: { in: ['SCHEDULED', 'CONFIRMED'] } },
+      where: {
+        ownerId,
+        startsAt: { gte: new Date() },
+        status: { in: ['SCHEDULED', 'CONFIRMED'] },
+      },
       orderBy: { startsAt: 'asc' },
       take: 5,
-      include: appointmentInclude,
+      include: {
+        client: { select: { id: true, name: true } },
+        service: { select: { id: true, name: true } },
+      },
     }),
     prisma.payment.aggregate({
       where: { ownerId, paidAt: { gte: monthBounds.start, lte: monthBounds.end } },
       _sum: { amountCents: true },
     }),
     prisma.expense.aggregate({
-      where: { ownerId, status: 'PAID', paidAt: { gte: monthBounds.start, lte: monthBounds.end } },
+      where: {
+        ownerId,
+        status: 'PAID',
+        paidAt: { gte: monthBounds.start, lte: monthBounds.end },
+      },
       _sum: { amountCents: true },
     }),
-    getReceivablesCents(ownerId),
-    prisma.client.count({ where: { ownerId, archivedAt: null } }),
-    prisma.client.count({
-      where: { ownerId, createdAt: { gte: monthBounds.start, lte: monthBounds.end } },
-    }),
-    prisma.payment.findMany({
-      where: { ownerId, paidAt: { gte: weekStart, lte: todayBounds.end } },
-      select: { paidAt: true, amountCents: true },
-    }),
-    prisma.expense.findMany({
-      where: { ownerId, status: 'PAID', paidAt: { gte: weekStart, lte: todayBounds.end } },
-      select: { paidAt: true, amountCents: true },
-    }),
   ])
-
-  const week: { date: string; incomeCents: number; expenseCents: number }[] = []
-  for (let i = 0; i < 7; i++) {
-    week.push({
-      date: formatLocal(addDays(weekStart, i), 'yyyy-MM-dd'),
-      incomeCents: 0,
-      expenseCents: 0,
-    })
-  }
-  const byDate = new Map(week.map((d) => [d.date, d]))
-  for (const p of weekPayments) {
-    const d = byDate.get(formatLocal(p.paidAt, 'yyyy-MM-dd'))
-    if (d) d.incomeCents += p.amountCents
-  }
-  for (const e of weekExpenses) {
-    const d = byDate.get(formatLocal(e.paidAt!, 'yyyy-MM-dd'))
-    if (d) d.expenseCents += e.amountCents
-  }
 
   const incomeToday = todayPayments._sum.amountCents ?? 0
   const expensesToday = todayExpenses._sum.amountCents ?? 0
@@ -309,7 +306,7 @@ export async function getDashboard(ownerId: string) {
       expensesPaidCents: expensesToday,
       cashBalanceCents: incomeToday - expensesToday,
       attendancesCount: todayAttendancesCount,
-      appointmentsCount: todayAppointments.filter((a) => a.status !== 'CANCELLED').length,
+      appointmentsCount: todayAppointments.length,
       appointments: todayAppointments,
     },
     month: {
@@ -317,10 +314,6 @@ export async function getDashboard(ownerId: string) {
       expensesPaidCents: expensesMonth,
       cashBalanceCents: incomeMonth - expensesMonth,
     },
-    receivablesCents,
-    activeClients,
-    newClientsMonth,
-    week,
     upcomingAppointments: upcoming,
   }
 }
@@ -353,9 +346,13 @@ export async function getFinancialReport(ownerId: string, params: FinancialRepor
     orderBy: { paidAt: 'asc' },
   })
 
-  // Agrupa por dia/mês NO FUSO LOCAL (um pagamento às 22h não pode virar "amanhã")
-  const groupKey = (d: Date) =>
-    formatLocal(d, params.groupBy === 'month' ? 'yyyy-MM' : 'yyyy-MM-dd')
+  // Group by day or month
+  const groupKey = (d: Date) => {
+    if (params.groupBy === 'month') {
+      return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+    }
+    return d.toISOString().slice(0, 10)
+  }
 
   const incomeByPeriod: Record<string, number> = {}
   const expenseByPeriod: Record<string, number> = {}
@@ -451,27 +448,12 @@ export async function getFinancialReport(ownerId: string, params: FinancialRepor
 }
 
 export async function createCategory(ownerId: string, name: string) {
-  const clean = name.trim()
-  const existing = await prisma.expenseCategory.findUnique({
-    where: { ownerId_name: { ownerId, name: clean } },
+  return prisma.expenseCategory.create({
+    data: { ownerId, name: name.trim() },
   })
-  if (existing) {
-    if (existing.isActive) throw new ConflictError('Já existe uma categoria com esse nome')
-    return prisma.expenseCategory.update({ where: { id: existing.id }, data: { isActive: true } })
-  }
-  return prisma.expenseCategory.create({ data: { ownerId, name: clean } })
 }
 
-const DEFAULT_CATEGORIES = ['Materiais', 'Aluguel', 'Transporte', 'Marketing', 'Contas (água/luz/internet)', 'Outros']
-
 export async function listCategories(ownerId: string) {
-  const count = await prisma.expenseCategory.count({ where: { ownerId } })
-  if (count === 0) {
-    await prisma.expenseCategory.createMany({
-      data: DEFAULT_CATEGORIES.map((name) => ({ ownerId, name })),
-      skipDuplicates: true,
-    })
-  }
   return prisma.expenseCategory.findMany({
     where: { ownerId, isActive: true },
     orderBy: { name: 'asc' },

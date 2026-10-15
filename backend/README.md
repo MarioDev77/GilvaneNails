@@ -1,88 +1,177 @@
-# Gilvane Nails — Backend (API)
+# Gilvane Nails — Backend
 
-API REST em **Next.js (App Router) + TypeScript + PostgreSQL + Prisma + NextAuth + Zod**.
-Roda na porta **3001**. Quem usa é o frontend (porta 3000), que repassa `/api/*` para cá.
+Sistema de gestão para manicure (uso pessoal).  
+API REST construída com **Next.js App Router**, **TypeScript**, **PostgreSQL**, **Prisma ORM**, **NextAuth.js** e **Zod**.
 
-## Fluxo de uma requisição
+## Arquitetura
 
-Route Handler (`src/app/api`) → autenticação (`requireAuth`) → validação Zod (`src/schemas`) → regra de negócio (`src/services`) → Prisma.
-Toda consulta filtra por `ownerId` vindo da **sessão** (nunca do cliente).
-
-## Rodando sozinho (sem o frontend)
-
-```bash
-docker compose up -d                      # PostgreSQL
-cp .env.example .env                      # edite NEXTAUTH_SECRET (openssl rand -base64 32)
-npm install
-npx prisma generate
-npx prisma migrate dev --name init
-npm run create-owner -- --name "Gilvane" --email "email@exemplo.com" --password "UmaSenhaForte123"
-npm run dev                               # http://localhost:3001  (saúde: /api/health)
+```
+src/
+├── app/api/          # Route Handlers (entrada HTTP)
+├── schemas/          # Validação Zod
+├── services/         # Regras de negócio
+├── lib/              # Prisma, Auth, helpers
+├── types/            # Tipagens
+prisma/
+├── schema.prisma     # Modelagem do banco
+scripts/
+├── create-owner.ts   # Criação segura da conta inicial
 ```
 
-Em geral use `npm run setup` e `npm run dev` na **raiz** do projeto.
+**Fluxo:** Route Handler → validação Zod → autenticação → Service → Prisma.
 
-## Variáveis de ambiente
+Todas as entidades privadas são isoladas por `ownerId` obtido da sessão.  
+Nunca confie em `ownerId` enviado pelo cliente.
 
-| Variável | Descrição |
-|----------|-----------|
-| `DATABASE_URL` | Conexão PostgreSQL |
-| `NEXTAUTH_URL` | Endereço onde a pessoa **abre o sistema** (o do frontend: `http://localhost:3000`, ou o https público) |
-| `NEXTAUTH_SECRET` | Segredo forte da sessão |
+## Pré-requisitos
+
+- Node.js 20+
+- Docker e Docker Compose (para PostgreSQL local)
+- npm ou pnpm
+
+## Configuração local
+
+```bash
+# 1. Subir o banco
+docker compose up -d
+
+# 2. Copiar variáveis de ambiente
+cp .env.example .env
+# Edite NEXTAUTH_SECRET (use: openssl rand -base64 32)
+
+# 3. Instalar dependências
+npm install
+
+# 4. Gerar client Prisma e aplicar migrations
+npx prisma generate
+npx prisma migrate dev --name init
+
+# 5. Criar a conta da proprietária (obrigatório)
+npm run create-owner -- --name "Gilvane" --email "seu@email.com" --password "SuaSenhaForte123!"
+
+# 6. Iniciar o servidor
+npm run dev
+```
+
+A API ficará disponível em `http://localhost:3000` (ou a porta configurada).
 
 ## Autenticação
 
-Login por e-mail/senha (bcrypt, custo 12), sessão JWT em cookie por 30 dias, limite de 8 tentativas erradas / 15 min por e-mail.
-Não existe cadastro público — a conta é criada com `npm run create-owner`.
-Protocolo (é o do NextAuth): `GET /api/auth/csrf` → `POST /api/auth/callback/credentials` (`csrfToken, email, password, json=true`) → `GET /api/auth/session`.
+- **Login:** `POST /api/auth/callback/credentials` (padrão NextAuth)  
+  Ou use o fluxo de credentials do NextAuth no frontend.
+- Sessões JWT (estratégia `jwt`).
+- Todas as rotas privadas exigem sessão válida.
+- Não existe endpoint público de cadastro.
 
-## Endpoints
+### Exemplo de login (frontend)
+
+```ts
+import { signIn } from 'next-auth/react'
+
+await signIn('credentials', {
+  email: 'seu@email.com',
+  password: 'SuaSenhaForte123!',
+  redirect: false,
+})
+```
+
+## Principais endpoints
 
 | Método | Rota | Descrição |
 |--------|------|-----------|
-| GET/POST | `/api/clients` | Listar (`search`, `includeArchived`) / criar |
+| GET/POST | `/api/clients` | Listar / criar clientes |
 | GET/PATCH/DELETE | `/api/clients/:id` | Detalhe / editar / arquivar |
-| GET | `/api/clients/:id/history` | Atendimentos, próximos horários, pagamentos, saldo em aberto |
-| GET/POST | `/api/services` | Listar (`activeOnly`, `search`) / criar |
-| GET/PATCH/DELETE | `/api/services/:id` | Detalhe / editar (`isActive`) / desativar |
-| GET/POST | `/api/appointments` | Listar (`startDate`, `endDate`, `status`, `clientId`, `upcoming`) / criar |
-| GET/PATCH/DELETE | `/api/appointments/:id` | Detalhe / remarcar-editar / cancelar |
+| GET | `/api/clients/:id/history` | Histórico do cliente |
+| GET/POST | `/api/services` | Listar / criar serviços |
+| GET/PATCH/DELETE | `/api/services/:id` | Detalhe / editar / desativar |
+| GET/POST | `/api/appointments` | Listar / criar agendamentos |
+| GET/PATCH/DELETE | `/api/appointments/:id` | Detalhe / editar / cancelar |
 | PATCH | `/api/appointments/:id/status` | Alterar status |
-| GET | `/api/appointments/today` | Agendamentos de hoje |
-| GET/POST | `/api/attendances` | Listar (com saldo) / registrar (com ou sem agendamento) |
+| GET | `/api/appointments/today` | Agendamentos do dia |
+| GET/POST | `/api/attendances` | Listar / criar atendimentos |
 | GET/PATCH | `/api/attendances/:id` | Detalhe / editar |
 | GET/POST | `/api/attendances/:id/payments` | Listar / registrar pagamento |
-| GET | `/api/finance/summary` | Resumo (recebido, despesas, saldo, a receber) |
-| GET/POST | `/api/finance/expenses` | Listar / lançar despesa |
-| GET/PATCH | `/api/finance/expenses/:id` | Detalhe / editar |
-| PATCH | `/api/finance/expenses/:id/pay` · `/cancel` | Pagar / cancelar |
-| GET/POST | `/api/categories` | Categorias de despesa (as padrão são criadas no primeiro acesso) |
-| GET | `/api/dashboard` | Painel inicial |
-| GET | `/api/reports/financial` | Relatório por dia/mês, top serviços, formas de pagamento |
-| GET/PATCH | `/api/settings` | Nome do negócio e telefone |
-| POST | `/api/account/password` | Trocar senha |
-| GET | `/api/health` | Saúde da API e do banco |
+| GET | `/api/finance/summary` | Resumo financeiro |
+| GET/POST | `/api/finance/expenses` | Listar / criar despesas |
+| PATCH | `/api/finance/expenses/:id` | Editar despesa |
+| PATCH | `/api/finance/expenses/:id/pay` | Marcar como paga |
+| PATCH | `/api/finance/expenses/:id/cancel` | Cancelar despesa |
+| GET | `/api/dashboard` | Dados do dashboard |
+| GET | `/api/reports/financial` | Relatório financeiro |
+| GET/POST | `/api/categories` | Categorias de despesa |
 
-Respostas: sucesso `{ "data": ... }`; erro `{ "error": { "code", "message", "details?" } }`.
-Datas de filtro aceitam `YYYY-MM-DD` (interpretadas na Bahia) ou ISO com fuso.
+### Formato de resposta
 
-## Regras importantes
+**Sucesso:**
+```json
+{ "data": { ... } }
+```
 
-- Valores em **centavos** (inteiros).
-- Horários não podem se sobrepor (encostar é permitido); a checagem é protegida contra requisições simultâneas.
-- Cancelado/faltou libera o horário; reativar só se o horário continuar livre.
-- Um agendamento gera no máximo um atendimento (e fica *Concluído*).
-- Pagamentos parciais; **não é possível receber mais que o saldo**; reenvio com a mesma `idempotencyKey` não duplica.
-- Fuso padrão `America/Bahia` (UTC-3). Timestamps ficam em UTC no banco.
-- Excluir cliente = arquivar; excluir serviço = desativar (o histórico fica íntegro).
+**Erro:**
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Verifique os dados enviados.",
+    "details": []
+  }
+}
+```
+
+## Regras financeiras importantes
+
+- Valores monetários em **centavos** (`Int`).
+- Pagamentos parciais são suportados.
+- Um agendamento gera no máximo um atendimento.
+- Idempotência em pagamentos via `idempotencyKey`.
+- Cancelamentos preservam histórico.
+- Receitas = soma de pagamentos registrados.
+- Despesas pagas = status `PAID`.
+- Saldo de caixa = receitas − despesas pagas.
+- Valores a receber = saldo positivo dos atendimentos.
+
+## Timezone
+
+Padrão: `America/Bahia`.  
+Timestamps são armazenados em UTC; consultas de “dia” respeitam o fuso.
 
 ## Scripts
 
-`npm run dev` · `build` · `start` · `test` · `typecheck` · `db:migrate` · `db:deploy` · `db:studio` · `create-owner`
+| Script | Descrição |
+|--------|-----------|
+| `npm run dev` | Desenvolvimento |
+| `npm run build` | Build de produção |
+| `npm run start` | Produção |
+| `npm run db:migrate` | Migrations de desenvolvimento |
+| `npm run db:deploy` | Migrations de produção |
+| `npm run create-owner` | Criar conta inicial |
+| `npm run test` | Testes unitários |
 
-## Backup
+## Backup e restauração
 
 ```bash
+# Backup
 docker exec gilvane-nails-db pg_dump -U gilvane gilvane_nails > backup.sql
+
+# Restauração
 docker exec -i gilvane-nails-db psql -U gilvane gilvane_nails < backup.sql
 ```
+
+## Integração com o frontend
+
+O frontend (pasta `../frontend`) deve apontar as chamadas de API para a URL do backend e enviar o cookie de sessão do NextAuth (mesma origem ou CORS configurado).
+
+Para desenvolvimento em projetos separados, configure `NEXTAUTH_URL` e CORS adequadamente.
+
+## Segurança
+
+- Senhas com bcrypt (custo 12)
+- Autorização por proprietário em todas as operações
+- Validação Zod em todas as entradas
+- Segredos apenas em variáveis de ambiente
+- Transações para operações financeiras e de conflito de agenda
+- Idempotência em pagamentos
+
+---
+
+Desenvolvido para uso pessoal da proprietária do salão Gilvane Nails.

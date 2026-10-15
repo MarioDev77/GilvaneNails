@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { moneySchema, paginationSchema, queryBoolean } from './common'
+import { moneySchema, paginationSchema } from './common'
 
 export const createServiceSchema = z.object({
   name: z.string().min(2).max(120),
@@ -12,7 +12,7 @@ export const createServiceSchema = z.object({
 export const updateServiceSchema = createServiceSchema.partial()
 
 export const listServicesSchema = paginationSchema.extend({
-  activeOnly: queryBoolean.default(false),
+  activeOnly: z.coerce.boolean().default(false),
   search: z.string().max(100).optional(),
 })
 

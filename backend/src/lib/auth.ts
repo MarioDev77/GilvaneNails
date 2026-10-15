@@ -1,36 +1,18 @@
 import { NextAuthOptions, getServerSession } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
+import { PrismaAdapter } from '@auth/prisma-adapter'
 import bcrypt from 'bcryptjs'
 import { prisma } from './prisma'
-
-// Limite simples de tentativas de login (em memória): 8 falhas / 15 min por e-mail.
-const attempts = new Map<string, { count: number; resetAt: number }>()
-const MAX_ATTEMPTS = 8
-const WINDOW_MS = 15 * 60 * 1000
-
-function isBlocked(key: string) {
-  const entry = attempts.get(key)
-  if (!entry) return false
-  if (Date.now() > entry.resetAt) {
-    attempts.delete(key)
-    return false
-  }
-  return entry.count >= MAX_ATTEMPTS
-}
-
-function registerFailure(key: string) {
-  const entry = attempts.get(key)
-  if (!entry || Date.now() > entry.resetAt) {
-    attempts.set(key, { count: 1, resetAt: Date.now() + WINDOW_MS })
-  } else {
-    entry.count += 1
-  }
-}
+import type { Adapter } from 'next-auth/adapters'
 
 export const authOptions: NextAuthOptions = {
+  adapter: PrismaAdapter(prisma) as Adapter,
   session: {
     strategy: 'jwt',
     maxAge: 30 * 24 * 60 * 60, // 30 days
+  },
+  pages: {
+    signIn: '/login',
   },
   providers: [
     CredentialsProvider({
@@ -44,21 +26,18 @@ export const authOptions: NextAuthOptions = {
           return null
         }
 
-        const email = credentials.email.trim().toLowerCase()
-        if (isBlocked(email)) return null
+        const user = await prisma.user.findUnique({
+          where: { email: credentials.email.trim().toLowerCase() },
+        })
 
-        const user = await prisma.user.findUnique({ where: { email } })
         if (!user) {
-          registerFailure(email)
           return null
         }
 
         const isValid = await bcrypt.compare(credentials.password, user.passwordHash)
         if (!isValid) {
-          registerFailure(email)
           return null
         }
-        attempts.delete(email)
 
         return {
           id: user.id,

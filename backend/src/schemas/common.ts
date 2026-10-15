@@ -1,15 +1,5 @@
 import { z } from 'zod'
 
-/** Boolean vindo de querystring: "false"/"0" => false (z.coerce.boolean() trata "false" como true!). */
-export const queryBoolean = z.preprocess((v) => {
-  if (typeof v === 'string') {
-    const s = v.trim().toLowerCase()
-    if (['true', '1', 'yes', 'on'].includes(s)) return true
-    if (['false', '0', 'no', 'off', ''].includes(s)) return false
-  }
-  return v
-}, z.boolean())
-
 export const idSchema = z.string().cuid({ message: 'ID inválido' })
 
 export const paginationSchema = z.object({

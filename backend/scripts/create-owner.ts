@@ -5,11 +5,10 @@
  * NÃO utiliza senhas padrão. Exige parâmetros explícitos.
  */
 
-import 'dotenv/config'
+import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
-import { createPrismaClient } from '../src/lib/prisma-client'
 
-const prisma = createPrismaClient()
+const prisma = new PrismaClient()
 
 function parseArgs() {
   const args = process.argv.slice(2)

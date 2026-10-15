@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { phoneSchema, paginationSchema, queryBoolean } from './common'
+import { phoneSchema, paginationSchema } from './common'
 
 export const createClientSchema = z.object({
   name: z.string().min(2, 'Nome deve ter pelo menos 2 caracteres').max(120),
@@ -12,7 +12,7 @@ export const updateClientSchema = createClientSchema.partial()
 
 export const listClientsSchema = paginationSchema.extend({
   search: z.string().max(100).optional(),
-  includeArchived: queryBoolean.default(false),
+  includeArchived: z.coerce.boolean().default(false),
 })
 
 export type CreateClientInput = z.infer<typeof createClientSchema>

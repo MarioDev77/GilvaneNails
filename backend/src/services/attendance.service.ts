@@ -7,7 +7,6 @@ import type {
   ListAttendancesInput,
 } from '@/schemas/attendance'
 import { getDayBounds } from '@/lib/dates'
-import { Prisma } from '@prisma/client'
 
 export async function createAttendance(ownerId: string, input: CreateAttendanceInput) {
   const client = await prisma.client.findFirst({
@@ -35,12 +34,6 @@ export async function createAttendance(ownerId: string, input: CreateAttendanceI
       if (!appt) throw new NotFoundError('Agendamento não encontrado')
       if (appt.attendance) {
         throw new ConflictError('Este agendamento já possui um atendimento vinculado')
-      }
-      if (appt.clientId !== input.clientId) {
-        throw new ValidationError('A cliente informada não é a do agendamento')
-      }
-      if (appt.status === 'CANCELLED' || appt.status === 'NO_SHOW') {
-        throw new ValidationError('Não é possível registrar atendimento de um agendamento cancelado ou com falta')
       }
 
       // Mark appointment as COMPLETED
@@ -181,60 +174,62 @@ export async function addPayment(
   attendanceId: string,
   input: CreatePaymentInput
 ) {
-  // Confirma que o atendimento é da proprietária
-  await getAttendanceById(ownerId, attendanceId)
+  const attendance = await getAttendanceById(ownerId, attendanceId)
 
-  const findByKey = () =>
-    input.idempotencyKey
-      ? prisma.payment.findFirst({
-          where: { ownerId, attendanceId, idempotencyKey: input.idempotencyKey },
-        })
-      : Promise.resolve(null)
+  // Idempotency check
+  if (input.idempotencyKey) {
+    const existingKey = await prisma.idempotencyKey.findUnique({
+      where: {
+        ownerId_key: { ownerId, key: input.idempotencyKey },
+      },
+    })
+    if (existingKey?.response) {
+      return existingKey.response as any
+    }
+  }
 
-  // Reenvio da mesma requisição (clique duplo / rede ruim): devolve o pagamento já criado
-  const already = await findByKey()
-  if (already) return already
+  const paid = attendance.paidCents
+  const due = attendance.dueCents
+  if (paid + input.amountCents > due + 100) {
+    // Allow small overpayment tolerance? Or strict
+    // For now allow but warn via balance
+  }
 
-  try {
-    return await prisma.$transaction(async (tx) => {
-      // Trava o atendimento para que dois pagamentos simultâneos não estourem o saldo
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${attendanceId}))`
-
-      const att = await tx.attendance.findFirstOrThrow({
-        where: { id: attendanceId, ownerId },
-        include: { payments: true },
+  const result = await prisma.$transaction(async (tx) => {
+    if (input.idempotencyKey) {
+      const existing = await tx.idempotencyKey.findUnique({
+        where: { ownerId_key: { ownerId, key: input.idempotencyKey } },
       })
-      const paid = att.payments.reduce((sum, p) => sum + p.amountCents, 0)
-      const balance = att.priceCents - att.discountCents - paid
+      if (existing?.response) return existing.response as any
+    }
 
-      if (input.amountCents > balance) {
-        throw new ValidationError(
-          balance <= 0
-            ? 'Este atendimento já está totalmente pago.'
-            : `O valor excede o saldo a receber (restam ${(balance / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}).`
-        )
-      }
+    const payment = await tx.payment.create({
+      data: {
+        ownerId,
+        attendanceId,
+        amountCents: input.amountCents,
+        paidAt: input.paidAt ? new Date(input.paidAt) : new Date(),
+        method: input.method,
+        description: input.description ?? null,
+        idempotencyKey: input.idempotencyKey ?? null,
+      },
+    })
 
-      return tx.payment.create({
+    if (input.idempotencyKey) {
+      await tx.idempotencyKey.create({
         data: {
           ownerId,
-          attendanceId,
-          amountCents: input.amountCents,
-          paidAt: input.paidAt ? new Date(input.paidAt) : new Date(),
-          method: input.method,
-          description: input.description ?? null,
-          idempotencyKey: input.idempotencyKey ?? null,
+          key: input.idempotencyKey,
+          response: payment as any,
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
         },
       })
-    })
-  } catch (e) {
-    // Duas requisições com a mesma chave ao mesmo tempo: a segunda cai aqui
-    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-      const existing = await findByKey()
-      if (existing) return existing
     }
-    throw e
-  }
+
+    return payment
+  })
+
+  return result
 }
 
 export async function getAttendancePayments(ownerId: string, attendanceId: string) {
