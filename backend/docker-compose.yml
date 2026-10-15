@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: gilvane-nails-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: gilvane
+      POSTGRES_PASSWORD: gilvane_secret
+      POSTGRES_DB: gilvane_nails
+    ports:
+      - "5432:5432"
+    volumes:
+      - gilvane_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gilvane -d gilvane_nails"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  gilvane_pgdata:

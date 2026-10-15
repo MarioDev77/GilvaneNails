@@ -1,0 +1,11 @@
+{
+  "name": "Gilvane Nails",
+  "short_name": "Gilvane Nails",
+  "description": "Gestão delicada para o seu negócio de unhas.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fffafb",
+  "theme_color": "#d85f7b",
+  "lang": "pt-BR",
+  "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

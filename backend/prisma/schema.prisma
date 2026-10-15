@@ -1,0 +1,238 @@
+generator client {
+  provider = "prisma-client-js"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PaymentMethod {
+  CASH
+  PIX
+  DEBIT_CARD
+  CREDIT_CARD
+  OTHER
+}
+
+enum ExpenseStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  clients          Client[]
+  services         Service[]
+  appointments     Appointment[]
+  attendances      Attendance[]
+  payments         Payment[]
+  expenses         Expense[]
+  expenseCategories ExpenseCategory[]
+  settings         Settings?
+  idempotencyKeys  IdempotencyKey[]
+
+  @@map("users")
+}
+
+model Client {
+  id         String    @id @default(cuid())
+  ownerId    String
+  name       String
+  phone      String
+  birthday   DateTime?
+  notes      String?
+  archivedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  attendances  Attendance[]
+
+  @@index([ownerId])
+  @@index([ownerId, name])
+  @@index([ownerId, phone])
+  @@index([ownerId, archivedAt])
+  @@map("clients")
+}
+
+model Service {
+  id              String   @id @default(cuid())
+  ownerId         String
+  name            String
+  description     String?
+  priceCents      Int
+  durationMinutes Int
+  isActive        Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  appointments Appointment[]
+  attendances  Attendance[]
+
+  @@index([ownerId])
+  @@index([ownerId, isActive])
+  @@map("services")
+}
+
+model Appointment {
+  id               String            @id @default(cuid())
+  ownerId          String
+  clientId         String
+  serviceId        String
+  startsAt         DateTime
+  endsAt           DateTime
+  agreedPriceCents Int
+  status           AppointmentStatus @default(SCHEDULED)
+  notes            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  owner      User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  client     Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  service    Service      @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  attendance Attendance?
+
+  @@index([ownerId])
+  @@index([ownerId, startsAt])
+  @@index([ownerId, status])
+  @@index([ownerId, clientId])
+  @@index([ownerId, startsAt, endsAt, status])
+  @@map("appointments")
+}
+
+model Attendance {
+  id            String   @id @default(cuid())
+  ownerId       String
+  appointmentId String?  @unique
+  clientId      String
+  serviceId     String?
+  performedAt   DateTime
+  priceCents    Int
+  discountCents Int      @default(0)
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  owner       User         @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [appointmentId], references: [id], onDelete: SetNull)
+  client      Client       @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  service     Service?     @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  payments    Payment[]
+
+  @@index([ownerId])
+  @@index([ownerId, performedAt])
+  @@index([ownerId, clientId])
+  @@map("attendances")
+}
+
+model Payment {
+  id            String        @id @default(cuid())
+  ownerId       String
+  attendanceId  String?
+  amountCents   Int
+  paidAt        DateTime
+  method        PaymentMethod
+  description   String?
+  idempotencyKey String?      @unique
+  createdAt     DateTime      @default(now())
+
+  owner      User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  attendance Attendance? @relation(fields: [attendanceId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId])
+  @@index([ownerId, paidAt])
+  @@index([ownerId, attendanceId])
+  @@index([ownerId, method])
+  @@map("payments")
+}
+
+model ExpenseCategory {
+  id        String   @id @default(cuid())
+  ownerId   String
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  owner    User      @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  expenses Expense[]
+
+  @@unique([ownerId, name])
+  @@index([ownerId])
+  @@map("expense_categories")
+}
+
+model Expense {
+  id            String        @id @default(cuid())
+  ownerId       String
+  categoryId    String?
+  description   String
+  amountCents   Int
+  incurredAt    DateTime
+  dueAt         DateTime?
+  paidAt        DateTime?
+  paymentMethod PaymentMethod?
+  status        ExpenseStatus @default(PENDING)
+  notes         String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  owner    User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  category ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId])
+  @@index([ownerId, status])
+  @@index([ownerId, incurredAt])
+  @@index([ownerId, paidAt])
+  @@index([ownerId, categoryId])
+  @@map("expenses")
+}
+
+model Settings {
+  id            String   @id @default(cuid())
+  ownerId       String   @unique
+  businessName  String?
+  phone         String?
+  timezone      String   @default("America/Bahia")
+  openingHours  Json?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@map("settings")
+}
+
+model IdempotencyKey {
+  id        String   @id @default(cuid())
+  ownerId   String
+  key       String
+  response  Json?
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, key])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
