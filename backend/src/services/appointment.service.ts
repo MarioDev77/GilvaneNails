@@ -38,11 +38,34 @@ async function assertNoConflict(
   }
 }
 
-export async function createAppointment(ownerId: string, input: CreateAppointmentInput) {
-  const client = await prisma.client.findFirst({
-    where: { id: input.clientId, ownerId, archivedAt: null },
+// Agendamento direto: se vier só o nome, reaproveita o cliente com o mesmo nome
+// (ou cria um cadastro simples automaticamente), sem exigir cadastro prévio.
+async function resolveClient(
+  ownerId: string,
+  clientId?: string,
+  clientName?: string
+) {
+  if (clientId) {
+    const client = await prisma.client.findFirst({
+      where: { id: clientId, ownerId, archivedAt: null },
+    })
+    if (!client) throw new NotFoundError('Cliente não encontrado ou arquivado')
+    return client
+  }
+
+  const name = (clientName ?? '').trim()
+  if (!name) throw new ValidationError('Informe o nome do cliente')
+
+  const existing = await prisma.client.findFirst({
+    where: { ownerId, archivedAt: null, name: { equals: name, mode: 'insensitive' } },
   })
-  if (!client) throw new NotFoundError('Cliente não encontrado ou arquivado')
+  if (existing) return existing
+
+  return prisma.client.create({ data: { ownerId, name, phone: '' } })
+}
+
+export async function createAppointment(ownerId: string, input: CreateAppointmentInput) {
+  const client = await resolveClient(ownerId, input.clientId, input.clientName)
 
   const service = await prisma.service.findFirst({
     where: { id: input.serviceId, ownerId, isActive: true },
@@ -80,7 +103,7 @@ export async function createAppointment(ownerId: string, input: CreateAppointmen
     return tx.appointment.create({
       data: {
         ownerId,
-        clientId: input.clientId,
+        clientId: client.id,
         serviceId: input.serviceId,
         startsAt,
         endsAt,
@@ -191,11 +214,13 @@ export async function updateAppointment(
     agreedPriceCents = input.agreedPriceCents
   }
 
+  let newClientId: string | undefined
   if (input.clientId && input.clientId !== existing.clientId) {
-    const client = await prisma.client.findFirst({
-      where: { id: input.clientId, ownerId, archivedAt: null },
-    })
-    if (!client) throw new NotFoundError('Cliente não encontrado ou arquivado')
+    const client = await resolveClient(ownerId, input.clientId)
+    newClientId = client.id
+  } else if (input.clientName && input.clientName.trim().toLowerCase() !== existing.client.name.trim().toLowerCase()) {
+    const client = await resolveClient(ownerId, undefined, input.clientName)
+    newClientId = client.id
   }
 
   return prisma.$transaction(async (tx) => {
@@ -223,7 +248,7 @@ export async function updateAppointment(
     return tx.appointment.update({
       where: { id },
       data: {
-        ...(input.clientId && { clientId: input.clientId }),
+        ...(newClientId && { clientId: newClientId }),
         serviceId,
         startsAt,
         endsAt,

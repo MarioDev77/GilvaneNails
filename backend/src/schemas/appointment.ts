@@ -8,16 +8,21 @@ import {
 } from './common'
 
 export const createAppointmentSchema = z.object({
-  clientId: idSchema,
+  clientId: idSchema.optional(),
+  clientName: z.string().trim().min(2, 'Nome deve ter pelo menos 2 caracteres').max(120).optional(),
   serviceId: idSchema,
   startsAt: z.string().datetime({ offset: true }),
   agreedPriceCents: moneySchema.optional(),
   notes: z.string().max(2000).optional().nullable(),
   status: appointmentStatusSchema.optional().default('SCHEDULED'),
+}).refine((d) => d.clientId || d.clientName, {
+  message: 'Informe o nome do cliente',
+  path: ['clientName'],
 })
 
 export const updateAppointmentSchema = z.object({
   clientId: idSchema.optional(),
+  clientName: z.string().trim().min(2, 'Nome deve ter pelo menos 2 caracteres').max(120).optional(),
   serviceId: idSchema.optional(),
   startsAt: z.string().datetime({ offset: true }).optional(),
   agreedPriceCents: moneySchema.optional(),
