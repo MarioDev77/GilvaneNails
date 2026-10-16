@@ -53,7 +53,7 @@ npm run create-owner -- --name "Gilvane" --email "seu@email.com" --password "Sua
 npm run dev
 ```
 
-A API ficará disponível em `http://localhost:3000` (ou a porta configurada).
+A API ficará disponível em `http://localhost:3001`. O script `npm run dev` já inicia o backend nessa porta para não conflitar com o frontend.
 
 ## Autenticação
 

@@ -26,16 +26,18 @@ npm install
 npx prisma generate
 npx prisma migrate dev --name init
 npm run create-owner -- --name "Gilvane" --email "seu@email.com" --password "SenhaForte123!"
-npm run dev
+npm run dev # backend inicia na porta 3001
 ```
 
 ## Frontend
 
-O frontend atual é uma interface visual (mock) pronta para ser conectada às APIs do backend.
+O frontend agora possui login conectado ao NextAuth do backend, navegação funcional, formulários de criação/edição e listagens que leem e gravam pela API. O frontend encaminha `/api/*` para o backend via rewrite.
 
 ```bash
 cd frontend
 npm install   # ou pnpm install
+# backend deve estar em http://localhost:3001
+# opcional: BACKEND_URL=http://localhost:3001
 npm run dev
 ```
 
@@ -61,3 +63,12 @@ npm run dev
 2. Adicionar testes de integração com banco de testes.
 3. Configurar rate limiting e headers de segurança em produção.
 4. Deploy (Vercel + Neon/Supabase ou similar).
+
+
+## Integração frontend/backend
+
+- Inicie o backend na porta 3001 e configure seu `.env` conforme `backend/README.md`.
+- No frontend, defina `BACKEND_URL=http://localhost:3001` (esse é o padrão de desenvolvimento).
+- O frontend encaminha `/api/*` ao backend; mantenha o `NEXTAUTH_SECRET` igual ao configurado no backend para o fluxo de sessão.
+- Execute `npm install` na pasta `frontend` após a atualização para instalar as dependências listadas no `package.json`.
+- A tela de login usa a conta criada pelo comando `npm run create-owner` no backend. Não há senha padrão embutida.
