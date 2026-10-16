@@ -7,7 +7,7 @@ export async function createClient(ownerId: string, input: CreateClientInput) {
     data: {
       ownerId,
       name: input.name.trim(),
-      phone: input.phone.trim(),
+      phone: input.phone?.trim() ?? '',
       birthday: input.birthday ? new Date(input.birthday) : null,
       notes: input.notes ?? null,
     },
