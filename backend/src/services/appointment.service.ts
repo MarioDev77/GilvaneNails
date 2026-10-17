@@ -43,7 +43,8 @@ async function assertNoConflict(
 async function resolveClient(
   ownerId: string,
   clientId?: string,
-  clientName?: string
+  clientName?: string,
+  clientPhone?: string
 ) {
   if (clientId) {
     const client = await prisma.client.findFirst({
@@ -59,9 +60,15 @@ async function resolveClient(
   const existing = await prisma.client.findFirst({
     where: { ownerId, archivedAt: null, name: { equals: name, mode: 'insensitive' } },
   })
-  if (existing) return existing
+  const phone = (clientPhone ?? '').trim()
+  if (existing) {
+    if (phone && !existing.phone) {
+      return prisma.client.update({ where: { id: existing.id }, data: { phone } })
+    }
+    return existing
+  }
 
-  return prisma.client.create({ data: { ownerId, name, phone: '' } })
+  return prisma.client.create({ data: { ownerId, name, phone } })
 }
 
 const COMPLETE_HINT =
@@ -70,7 +77,7 @@ const COMPLETE_HINT =
 export async function createAppointment(ownerId: string, input: CreateAppointmentInput) {
   if (input.status === 'COMPLETED') throw new ValidationError(COMPLETE_HINT)
 
-  const client = await resolveClient(ownerId, input.clientId, input.clientName)
+  const client = await resolveClient(ownerId, input.clientId, input.clientName, input.clientPhone)
 
   const service = await prisma.service.findFirst({
     where: { id: input.serviceId, ownerId, isActive: true },

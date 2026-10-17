@@ -11,6 +11,7 @@ import {
 export const createAppointmentSchema = z.object({
   clientId: idSchema.optional(),
   clientName: z.string().trim().min(2, 'Nome deve ter pelo menos 2 caracteres').max(120).optional(),
+  clientPhone: z.string().trim().max(20).optional(),
   serviceId: idSchema,
   startsAt: z.string().datetime({ offset: true }),
   agreedPriceCents: moneySchema.optional(),
