@@ -15,6 +15,8 @@ export const createAttendanceSchema = z.object({
   priceCents: moneySchema,
   discountCents: moneySchema.default(0),
   notes: z.string().max(2000).optional().nullable(),
+  // Se informado, já lança o recebimento (preço - desconto) no saldo.
+  paymentMethod: paymentMethodSchema.optional(),
 })
 
 export const updateAttendanceSchema = z.object({

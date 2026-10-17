@@ -25,15 +25,27 @@ export function toLocal(date: Date): Date {
   return toZonedTime(date, TIMEZONE)
 }
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/
+
+// Datas "YYYY-MM-DD" são interpretadas como dia local (America/Bahia).
+// Antes, new Date('2026-10-16') virava 15/10 21:00 no fuso e o dia ficava errado.
+function toLocalReference(date: Date | string, timezone: string): Date {
+  if (typeof date === 'string') {
+    if (DATE_ONLY.test(date)) return new Date(`${date}T12:00:00`)
+    return toZonedTime(new Date(date), timezone)
+  }
+  return toZonedTime(date, timezone)
+}
+
 export function getDayBounds(date: Date | string, timezone = TIMEZONE) {
-  const local = typeof date === 'string' ? toZonedTime(new Date(date), timezone) : toZonedTime(date, timezone)
+  const local = toLocalReference(date, timezone)
   const start = fromZonedTime(startOfDay(local), timezone)
   const end = fromZonedTime(endOfDay(local), timezone)
   return { start, end }
 }
 
 export function getMonthBounds(date: Date | string, timezone = TIMEZONE) {
-  const local = typeof date === 'string' ? toZonedTime(new Date(date), timezone) : toZonedTime(date, timezone)
+  const local = toLocalReference(date, timezone)
   const start = fromZonedTime(startOfMonth(local), timezone)
   const end = fromZonedTime(endOfMonth(local), timezone)
   return { start, end }

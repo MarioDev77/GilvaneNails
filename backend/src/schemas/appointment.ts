@@ -2,6 +2,7 @@ import { z } from 'zod'
 import {
   idSchema,
   moneySchema,
+  paymentMethodSchema,
   appointmentStatusSchema,
   paginationSchema,
   dateRangeSchema,
@@ -34,6 +35,24 @@ export const changeStatusSchema = z.object({
   status: appointmentStatusSchema,
 })
 
+export const completeAppointmentSchema = z.object({
+  method: paymentMethodSchema,
+  amountCents: moneySchema.optional(),
+})
+
+export const completeDaySchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: idSchema,
+        method: paymentMethodSchema,
+        amountCents: moneySchema.optional(),
+      })
+    )
+    .min(1, 'Selecione ao menos um atendimento')
+    .max(100),
+})
+
 export const listAppointmentsSchema = paginationSchema.merge(dateRangeSchema).extend({
   clientId: idSchema.optional(),
   serviceId: idSchema.optional(),
@@ -41,6 +60,8 @@ export const listAppointmentsSchema = paginationSchema.merge(dateRangeSchema).ex
   upcoming: z.coerce.boolean().optional(),
 })
 
+export type CompleteAppointmentBody = z.infer<typeof completeAppointmentSchema>
+export type CompleteDayBody = z.infer<typeof completeDaySchema>
 export type CreateAppointmentInput = z.infer<typeof createAppointmentSchema>
 export type UpdateAppointmentInput = z.infer<typeof updateAppointmentSchema>
 export type ListAppointmentsInput = z.infer<typeof listAppointmentsSchema>

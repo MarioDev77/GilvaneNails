@@ -43,7 +43,7 @@ export async function createAttendance(ownerId: string, input: CreateAttendanceI
       })
     }
 
-    return tx.attendance.create({
+    const attendance = await tx.attendance.create({
       data: {
         ownerId,
         appointmentId: input.appointmentId ?? null,
@@ -54,6 +54,24 @@ export async function createAttendance(ownerId: string, input: CreateAttendanceI
         discountCents: input.discountCents ?? 0,
         notes: input.notes ?? null,
       },
+    })
+
+    const due = input.priceCents - (input.discountCents ?? 0)
+    if (input.paymentMethod && due > 0) {
+      await tx.payment.create({
+        data: {
+          ownerId,
+          attendanceId: attendance.id,
+          amountCents: due,
+          paidAt: new Date(),
+          method: input.paymentMethod,
+          description: 'Recebimento do atendimento',
+        },
+      })
+    }
+
+    return tx.attendance.findUniqueOrThrow({
+      where: { id: attendance.id },
       include: {
         client: { select: { id: true, name: true, phone: true } },
         service: { select: { id: true, name: true } },

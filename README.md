@@ -72,3 +72,27 @@ npm run dev
 - O frontend encaminha `/api/*` ao backend; mantenha o `NEXTAUTH_SECRET` igual ao configurado no backend para o fluxo de sessão.
 - Execute `npm install` na pasta `frontend` após a atualização para instalar as dependências listadas no `package.json`.
 - A tela de login usa a conta criada pelo comando `npm run create-owner` no backend. Não há senha padrão embutida.
+
+## Fechar o dia e financeiro (novo)
+
+No painel, em **Agendamentos → Fechar o dia**, a manicure marca o que atendeu, escolhe a forma de pagamento
+(Pix, dinheiro, débito, crédito) e confirma. Cada atendimento concluído:
+
+1. muda o agendamento para `COMPLETED`;
+2. cria o **atendimento** (valor combinado; se recebeu menos vira desconto, se recebeu mais o valor sobe);
+3. lança o **pagamento** (entrada no caixa) — por isso o valor aparece na hora no saldo.
+
+"Desfazer" reabre o agendamento e remove o atendimento e o pagamento.
+
+Cálculos (todos em centavos, fuso America/Bahia):
+
+- **Saldo do período** = pagamentos recebidos no período − despesas **pagas** no período
+- **Saldo total em caixa** = todos os pagamentos − todas as despesas pagas
+- **A receber (previsto)** = soma dos agendamentos ainda agendados/confirmados no período
+- **Despesas pendentes** não entram no saldo até serem marcadas como pagas ("Pagar")
+- **Ticket médio** = recebido ÷ nº de atendimentos
+
+Novas rotas: `POST /api/appointments/:id/complete`, `POST /api/appointments/complete-day`,
+`POST /api/appointments/:id/reopen`, `GET /api/finance/movements`.
+Correções: datas `YYYY-MM-DD` não voltam mais um dia; relatório agrupa pelo dia local; horários nos formulários
+aparecem no fuso local.

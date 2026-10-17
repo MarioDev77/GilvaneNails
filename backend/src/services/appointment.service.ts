@@ -6,7 +6,7 @@ import type {
   UpdateAppointmentInput,
   ListAppointmentsInput,
 } from '@/schemas/appointment'
-import { AppointmentStatus } from '@prisma/client'
+import { AppointmentStatus, PaymentMethod } from '@prisma/client'
 
 const ACTIVE_STATUSES: AppointmentStatus[] = ['SCHEDULED', 'CONFIRMED']
 
@@ -64,7 +64,12 @@ async function resolveClient(
   return prisma.client.create({ data: { ownerId, name, phone: '' } })
 }
 
+const COMPLETE_HINT =
+  'Para concluir um atendimento use "Concluir" (informa a forma de pagamento e lança o valor no saldo).'
+
 export async function createAppointment(ownerId: string, input: CreateAppointmentInput) {
+  if (input.status === 'COMPLETED') throw new ValidationError(COMPLETE_HINT)
+
   const client = await resolveClient(ownerId, input.clientId, input.clientName)
 
   const service = await prisma.service.findFirst({
@@ -152,6 +157,7 @@ export async function listAppointments(ownerId: string, params: ListAppointments
       include: {
         client: { select: { id: true, name: true, phone: true } },
         service: { select: { id: true, name: true, durationMinutes: true } },
+        attendance: { select: { id: true, payments: { select: { amountCents: true, method: true } } } },
       },
     }),
     prisma.appointment.count({ where }),
@@ -186,6 +192,7 @@ export async function updateAppointment(
   if (existing.status === 'COMPLETED' || existing.status === 'CANCELLED') {
     throw new ValidationError('Não é possível editar agendamento concluído ou cancelado')
   }
+  if (input.status === 'COMPLETED') throw new ValidationError(COMPLETE_HINT)
 
   let startsAt = existing.startsAt
   let endsAt = existing.endsAt
@@ -271,11 +278,13 @@ export async function changeAppointmentStatus(
 ) {
   const existing = await getAppointmentById(ownerId, id)
 
-  if (existing.status === 'COMPLETED' && status !== 'COMPLETED') {
-    // Allow only if no attendance yet? But safer to prevent
-    if (existing.attendance) {
-      throw new ValidationError('Agendamento já possui atendimento vinculado')
-    }
+  if (status === 'COMPLETED') throw new ValidationError(COMPLETE_HINT)
+
+  if (existing.status === 'COMPLETED') {
+    // Concluído já gerou atendimento e pagamento: use "Desfazer conclusão" para reabrir.
+    throw new ValidationError(
+      'Este atendimento já foi concluído. Use "Desfazer conclusão" para corrigir.'
+    )
   }
 
   return prisma.appointment.update({
@@ -320,5 +329,130 @@ export async function getUpcomingAppointments(ownerId: string, limit = 10) {
       client: { select: { id: true, name: true, phone: true } },
       service: { select: { id: true, name: true, durationMinutes: true } },
     },
+  })
+}
+
+
+export type CompleteAppointmentInput = {
+  method: PaymentMethod
+  /** Valor efetivamente recebido, em centavos. Padrão: preço combinado do agendamento. */
+  amountCents?: number
+  paidAt?: Date
+}
+
+/**
+ * Conclui um agendamento: marca COMPLETED, cria o atendimento e lança o pagamento.
+ * É isso que faz o dinheiro aparecer no saldo / relatório financeiro.
+ * Tudo numa transação; se já houver atendimento, não duplica.
+ */
+export async function completeAppointment(
+  ownerId: string,
+  id: string,
+  input: CompleteAppointmentInput
+) {
+  const appt = await getAppointmentById(ownerId, id)
+
+  if (appt.status === 'COMPLETED' || appt.attendance) {
+    throw new ConflictError('Este atendimento já foi concluído')
+  }
+  if (appt.status === 'CANCELLED' || appt.status === 'NO_SHOW') {
+    throw new ValidationError('Agendamento cancelado ou sem comparecimento não gera valor')
+  }
+
+  const received = input.amountCents ?? appt.agreedPriceCents
+  if (!Number.isInteger(received) || received < 0) {
+    throw new ValidationError('Valor recebido inválido')
+  }
+
+  // Recebeu menos que o combinado => desconto; recebeu mais => o preço sobe (gorjeta/adicional).
+  const priceCents = Math.max(appt.agreedPriceCents, received)
+  const discountCents = priceCents - received
+  const now = input.paidAt ?? new Date()
+
+  return prisma.$transaction(async (tx) => {
+    const attendance = await tx.attendance.create({
+      data: {
+        ownerId,
+        appointmentId: appt.id,
+        clientId: appt.clientId,
+        serviceId: appt.serviceId,
+        performedAt: appt.startsAt <= now ? appt.startsAt : now,
+        priceCents,
+        discountCents,
+        notes: appt.notes ?? null,
+      },
+    })
+
+    if (received > 0) {
+      await tx.payment.create({
+        data: {
+          ownerId,
+          attendanceId: attendance.id,
+          amountCents: received,
+          paidAt: now,
+          method: input.method,
+          description: 'Recebimento do atendimento',
+        },
+      })
+    }
+
+    return tx.appointment.update({
+      where: { id: appt.id },
+      data: { status: 'COMPLETED' },
+      include: {
+        client: { select: { id: true, name: true, phone: true } },
+        service: { select: { id: true, name: true } },
+        attendance: { include: { payments: true } },
+      },
+    })
+  })
+}
+
+export type CompleteDayItem = {
+  id: string
+  method: PaymentMethod
+  amountCents?: number
+}
+
+/** "Fechar o dia": conclui vários agendamentos de uma vez. Cada um é independente. */
+export async function completeAppointments(ownerId: string, items: CompleteDayItem[]) {
+  const completed: string[] = []
+  const failed: { id: string; message: string }[] = []
+
+  for (const item of items) {
+    try {
+      await completeAppointment(ownerId, item.id, {
+        method: item.method,
+        amountCents: item.amountCents,
+      })
+      completed.push(item.id)
+    } catch (e: any) {
+      failed.push({ id: item.id, message: e?.message ?? 'Erro ao concluir' })
+    }
+  }
+
+  return { completed, failed }
+}
+
+/** Desfaz a conclusão (ex.: marcou por engano): remove atendimento/pagamentos e volta p/ Confirmado. */
+export async function reopenAppointment(ownerId: string, id: string) {
+  const appt = await getAppointmentById(ownerId, id)
+  if (appt.status !== 'COMPLETED') {
+    throw new ValidationError('Só é possível desfazer um atendimento concluído')
+  }
+
+  return prisma.$transaction(async (tx) => {
+    if (appt.attendance) {
+      await tx.payment.deleteMany({ where: { ownerId, attendanceId: appt.attendance.id } })
+      await tx.attendance.delete({ where: { id: appt.attendance.id } })
+    }
+    return tx.appointment.update({
+      where: { id },
+      data: { status: 'CONFIRMED' },
+      include: {
+        client: { select: { id: true, name: true, phone: true } },
+        service: { select: { id: true, name: true } },
+      },
+    })
   })
 }

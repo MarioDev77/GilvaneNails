@@ -16,6 +16,8 @@ export const createExpenseSchema = z.object({
   dueAt: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional().nullable(),
   paymentMethod: paymentMethodSchema.optional().nullable(),
   notes: z.string().max(1000).optional().nullable(),
+  // Despesa já paga no ato do cadastro: entra direto no saldo.
+  paidNow: z.boolean().optional(),
 })
 
 export const updateExpenseSchema = createExpenseSchema.partial().extend({
