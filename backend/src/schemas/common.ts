@@ -12,6 +12,16 @@ export const dateRangeSchema = z.object({
   endDate: z.string().datetime({ offset: true }).or(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).optional(),
 })
 
+/** Booleano vindo da URL: "false"/"0" são falso (z.coerce.boolean() tratava "false" como verdadeiro). */
+export const queryBoolean = z.preprocess((v) => {
+  if (typeof v === 'string') {
+    const t = v.trim().toLowerCase()
+    if (t === 'false' || t === '0' || t === '') return false
+    if (t === 'true' || t === '1') return true
+  }
+  return v
+}, z.boolean())
+
 export const moneySchema = z.number().int().min(0, 'Valor não pode ser negativo')
 
 export const phoneSchema = z

@@ -96,12 +96,17 @@ r = await api('PATCH', `/appointments/${appt2.id}`, { startsAt: tz(tomorrow, '10
 check('remarcar para horário ocupado → 409', r.status === 409)
 r = await api('PATCH', `/appointments/${appt2.id}/status`, { status: 'CONFIRMED' })
 check('confirma agendamento', r.data?.status === 'CONFIRMED')
-r = await api('DELETE', `/appointments/${appt2.id}`)
+r = await api('PATCH', `/appointments/${appt2.id}/status`, { status: 'CANCELLED' })
 check('cancela agendamento', r.data?.status === 'CANCELLED')
 r = await api('POST', '/appointments', { clientId: client.id, serviceId: service2.id, startsAt: tz(tomorrow, '11:30') })
 check('horário de cancelado é liberado', r.status === 201); const appt3 = r.data
 r = await api('PATCH', `/appointments/${appt2.id}/status`, { status: 'SCHEDULED' })
 check('reativar cancelado em horário já ocupado → 409', r.status === 409)
+check('mensagem do conflito diz quem ocupa o horário', /conflita/i.test(r.error?.message ?? ''))
+r = await api('DELETE', `/appointments/${appt3.id}`)
+check('exclui agendamento de vez', r.data?.deleted === true)
+r = await api('GET', `/appointments/${appt3.id}`)
+check('agendamento excluído não existe mais → 404', r.status === 404)
 
 section('Atendimento e pagamentos')
 r = await api('POST', '/attendances', { appointmentId: appt.id, clientId: client.id, serviceId: service.id, priceCents: 12000, discountCents: 2000 })

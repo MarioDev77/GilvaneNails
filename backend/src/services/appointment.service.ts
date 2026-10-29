@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { NotFoundError, ConflictError, ValidationError } from '@/lib/auth'
-import { calculateEndsAt, rangesOverlap, getDayBounds } from '@/lib/dates'
+import { calculateEndsAt, getDayBounds } from '@/lib/dates'
+import { conflictMessage, findOverlap } from '@/lib/conflicts'
 import type {
   CreateAppointmentInput,
   UpdateAppointmentInput,
@@ -10,32 +11,28 @@ import { AppointmentStatus, PaymentMethod } from '@prisma/client'
 
 const ACTIVE_STATUSES: AppointmentStatus[] = ['SCHEDULED', 'CONFIRMED']
 
+type Db = Pick<typeof prisma, 'appointment'>
+
+/** Garante que o intervalo está livre. Só conta agendamentos ativos (agendado/confirmado). */
 async function assertNoConflict(
+  db: Db,
   ownerId: string,
   startsAt: Date,
   endsAt: Date,
   excludeId?: string
 ) {
-  // Use transaction with advisory lock or serializable for safety
-  const candidates = await prisma.appointment.findMany({
+  const candidates = await db.appointment.findMany({
     where: {
       ownerId,
       status: { in: ACTIVE_STATUSES },
       ...(excludeId ? { id: { not: excludeId } } : {}),
-      // Broad filter for performance
       startsAt: { lt: endsAt },
       endsAt: { gt: startsAt },
     },
-    select: { id: true, startsAt: true, endsAt: true },
+    select: { id: true, startsAt: true, endsAt: true, client: { select: { name: true } } },
   })
-
-  for (const appt of candidates) {
-    if (rangesOverlap(startsAt, endsAt, appt.startsAt, appt.endsAt)) {
-      throw new ConflictError(
-        'Já existe um agendamento ativo neste horário. Escolha outro horário.'
-      )
-    }
-  }
+  const clash = findOverlap(startsAt, endsAt, candidates)
+  if (clash) throw new ConflictError(conflictMessage(clash))
 }
 
 // Agendamento direto: se vier só o nome, reaproveita o cliente com o mesmo nome
@@ -93,24 +90,7 @@ export async function createAppointment(ownerId: string, input: CreateAppointmen
   }
 
   return prisma.$transaction(async (tx) => {
-    // Re-check conflicts inside transaction
-    const conflicting = await tx.appointment.findMany({
-      where: {
-        ownerId,
-        status: { in: ACTIVE_STATUSES },
-        startsAt: { lt: endsAt },
-        endsAt: { gt: startsAt },
-      },
-      select: { id: true, startsAt: true, endsAt: true },
-    })
-
-    for (const appt of conflicting) {
-      if (rangesOverlap(startsAt, endsAt, appt.startsAt, appt.endsAt)) {
-        throw new ConflictError(
-          'Já existe um agendamento ativo neste horário. Escolha outro horário.'
-        )
-      }
-    }
+    await assertNoConflict(tx, ownerId, startsAt, endsAt)
 
     return tx.appointment.create({
       data: {
@@ -132,13 +112,27 @@ export async function createAppointment(ownerId: string, input: CreateAppointmen
 }
 
 export async function listAppointments(ownerId: string, params: ListAppointmentsInput) {
-  const { page, limit, startDate, endDate, clientId, serviceId, status, upcoming } = params
+  const { page, limit, startDate, endDate, clientId, serviceId, status, upcoming, order, search, statuses } = params
 
   const where: any = { ownerId }
 
   if (clientId) where.clientId = clientId
   if (serviceId) where.serviceId = serviceId
   if (status) where.status = status
+  if (statuses) {
+    const valid = statuses
+      .split(',')
+      .map((x) => x.trim())
+      .filter((x): x is AppointmentStatus => ['SCHEDULED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(x))
+    if (valid.length) where.status = { in: valid }
+  }
+  if (search) {
+    where.OR = [
+      { client: { name: { contains: search, mode: 'insensitive' } } },
+      { service: { name: { contains: search, mode: 'insensitive' } } },
+      { notes: { contains: search, mode: 'insensitive' } },
+    ]
+  }
 
   if (upcoming) {
     where.startsAt = { gte: new Date() }
@@ -158,7 +152,7 @@ export async function listAppointments(ownerId: string, params: ListAppointments
   const [items, total] = await Promise.all([
     prisma.appointment.findMany({
       where,
-      orderBy: { startsAt: 'asc' },
+      orderBy: { startsAt: order },
       skip: (page - 1) * limit,
       take: limit,
       include: {
@@ -238,25 +232,9 @@ export async function updateAppointment(
   }
 
   return prisma.$transaction(async (tx) => {
-    if (input.startsAt || input.serviceId) {
-      const conflicting = await tx.appointment.findMany({
-        where: {
-          ownerId,
-          id: { not: id },
-          status: { in: ACTIVE_STATUSES },
-          startsAt: { lt: endsAt },
-          endsAt: { gt: startsAt },
-        },
-        select: { id: true, startsAt: true, endsAt: true },
-      })
-
-      for (const appt of conflicting) {
-        if (rangesOverlap(startsAt, endsAt, appt.startsAt, appt.endsAt)) {
-          throw new ConflictError(
-            'Já existe um agendamento ativo neste horário. Escolha outro horário.'
-          )
-        }
-      }
+    const nextStatus = input.status ?? existing.status
+    if (ACTIVE_STATUSES.includes(nextStatus)) {
+      await assertNoConflict(tx, ownerId, startsAt, endsAt, id)
     }
 
     return tx.appointment.update({
@@ -294,14 +272,37 @@ export async function changeAppointmentStatus(
     )
   }
 
-  return prisma.appointment.update({
-    where: { id },
-    data: { status },
-    include: {
-      client: { select: { id: true, name: true, phone: true } },
-      service: { select: { id: true, name: true } },
-    },
-  })
+  const include = {
+    client: { select: { id: true, name: true, phone: true } },
+    service: { select: { id: true, name: true } },
+  }
+
+  // Reativar um horário cancelado/falta: só se ninguém ocupou o lugar nesse meio tempo.
+  const reactivating = ACTIVE_STATUSES.includes(status) && !ACTIVE_STATUSES.includes(existing.status)
+  if (reactivating) {
+    return prisma.$transaction(async (tx) => {
+      await assertNoConflict(tx, ownerId, existing.startsAt, existing.endsAt, id)
+      return tx.appointment.update({ where: { id }, data: { status }, include })
+    })
+  }
+
+  return prisma.appointment.update({ where: { id }, data: { status }, include })
+}
+
+/**
+ * Exclui DEFINITIVAMENTE um agendamento (ex.: lançado por engano).
+ * Diferente de cancelar, não deixa registro. Agendamento concluído tem atendimento e
+ * pagamento ligados ao financeiro, então precisa "Desfazer conclusão" antes.
+ */
+export async function deleteAppointment(ownerId: string, id: string) {
+  const appt = await getAppointmentById(ownerId, id)
+  if (appt.status === 'COMPLETED' || appt.attendance) {
+    throw new ValidationError(
+      'Este atendimento já foi concluído e está no financeiro. Use "Desfazer conclusão" antes de excluir.'
+    )
+  }
+  await prisma.appointment.delete({ where: { id } })
+  return { id, deleted: true as const }
 }
 
 export async function cancelAppointment(ownerId: string, id: string) {

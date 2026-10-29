@@ -6,6 +6,7 @@ import {
   appointmentStatusSchema,
   paginationSchema,
   dateRangeSchema,
+  queryBoolean,
 } from './common'
 
 export const createAppointmentSchema = z.object({
@@ -58,7 +59,11 @@ export const listAppointmentsSchema = paginationSchema.merge(dateRangeSchema).ex
   clientId: idSchema.optional(),
   serviceId: idSchema.optional(),
   status: appointmentStatusSchema.optional(),
-  upcoming: z.coerce.boolean().optional(),
+  upcoming: queryBoolean.optional(),
+  order: z.enum(['asc', 'desc']).default('asc'),
+  search: z.string().trim().max(100).optional(),
+  // vários status separados por vírgula, ex.: SCHEDULED,CONFIRMED
+  statuses: z.string().max(100).optional(),
 })
 
 export type CompleteAppointmentBody = z.infer<typeof completeAppointmentSchema>

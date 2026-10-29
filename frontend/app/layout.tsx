@@ -1,6 +1,9 @@
 import { Analytics } from '@vercel/analytics/next'
 import type { Metadata, Viewport } from 'next'
+import { Figtree } from 'next/font/google'
 import './globals.css'
+
+const figtree = Figtree({ subsets: ['latin'], variable: '--font-figtree', display: 'swap' })
 
 export const metadata: Metadata = {
   title: 'Gilvane Nails | Gestão para manicure',
@@ -12,12 +15,12 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   colorScheme: 'light',
-  themeColor: '#d85f7b',
+  themeColor: '#c94f6c',
   viewportFit: 'cover',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return <html lang="pt-BR"><body className="antialiased">{children}{process.env.NODE_ENV === 'production' && <Analytics />}</body></html>
+  return <html lang="pt-BR"><body className={`${figtree.variable} antialiased`}>{children}{process.env.NODE_ENV === 'production' && <Analytics />}</body></html>
 }
 
 

@@ -2,61 +2,356 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Home, CalendarDays, Check, Users, Sparkles, Wallet, BarChart3, Settings, Inbox, Plus, Pencil, Trash2, LogOut, RefreshCw, X, Eye, EyeOff, BadgeCheck, CircleDollarSign, CheckCheck } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { CloseDayPanel, FinanceView, ReportsView, METHODS } from '@/components/admin-finance'
+import { BarChart3, CalendarDays, CircleDollarSign, Clock, Copy, Eye, EyeOff, Home, Inbox, LogOut, Menu, MessageCircle, Plus, Settings, Sparkles, Wallet, Check, ClipboardList, X } from 'lucide-react'
+import { cn } from '@/lib/utils'
+import { formatBRL, formatDateKey, greeting, toDateKey, toTimeKey, whatsappLink } from '@/lib/format'
+import { FinanceView, ReportsView } from '@/components/admin-finance'
+import AgendaView from '@/components/agenda-view'
+import RecordsView from '@/components/records-view'
+import { Btn, ConfirmDialog, Empty, Modal, Pill, APPT_STATUS, ToastHost, inputCls, labelCls, type Toast } from '@/components/ui-bits'
 
 type Row = Record<string, any>
-type Section = 'inicio'|'agenda'|'solicitacoes'|'atendimentos'|'servicos'|'financeiro'|'despesas'|'relatorios'|'configuracoes'
-const nav: {id:Section;label:string;icon:any}[] = [
- {id:'inicio',label:'Início',icon:Home},{id:'agenda',label:'Agendamentos',icon:CalendarDays},{id:'solicitacoes',label:'Solicitações',icon:Inbox},{id:'atendimentos',label:'Atendimentos',icon:Check},{id:'servicos',label:'Serviços',icon:Sparkles},{id:'financeiro',label:'Financeiro',icon:CircleDollarSign},{id:'despesas',label:'Despesas',icon:Wallet},{id:'relatorios',label:'Relatórios',icon:BarChart3},{id:'configuracoes',label:'Configurações',icon:Settings},
+type Section = 'inicio' | 'agenda' | 'solicitacoes' | 'atendimentos' | 'servicos' | 'financeiro' | 'despesas' | 'relatorios' | 'configuracoes'
+
+const NAV: { id: Section; label: string; hint: string; icon: React.ElementType }[] = [
+  { id: 'inicio', label: 'Início', hint: 'Resumo do dia', icon: Home },
+  { id: 'agenda', label: 'Agenda', hint: 'Horários marcados, por dia ou todos', icon: CalendarDays },
+  { id: 'solicitacoes', label: 'Solicitações', hint: 'Pedidos feitos pelo link de agendamento', icon: Inbox },
+  { id: 'atendimentos', label: 'Atendimentos', hint: 'Serviços já realizados', icon: ClipboardList },
+  { id: 'servicos', label: 'Serviços', hint: 'Preços e duração', icon: Sparkles },
+  { id: 'financeiro', label: 'Financeiro', hint: 'Entradas, saídas e saldo', icon: CircleDollarSign },
+  { id: 'despesas', label: 'Despesas', hint: 'Gastos do mês', icon: Wallet },
+  { id: 'relatorios', label: 'Relatórios', hint: 'Resultados por período', icon: BarChart3 },
+  { id: 'configuracoes', label: 'Configurações', hint: 'Conta e link de agendamento', icon: Settings },
 ]
-const money=(c:number)=>new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format((c||0)/100)
-const date=(s:string)=>s?new Date(s).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}):'—'
-const dateInput=(s:string)=>{if(!s)return '';const d=new Date(s);const p=(n:number)=>String(n).padStart(2,'0');return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`}
-const paths:Record<string,string>={servicos:'/api/services',agenda:'/api/appointments',solicitacoes:'/api/booking-requests',atendimentos:'/api/attendances',despesas:'/api/finance/expenses'}
-const columnLabels:Record<string,string>={name:'Nome',phone:'Telefone',birthday:'Aniversário',notes:'Observações',priceCents:'Valor',durationMinutes:'Duração',isActive:'Ativo',clientId:'Cliente',serviceId:'Serviço',startsAt:'Data e hora',status:'Status',performedAt:'Data',description:'Descrição',amountCents:'Valor',incurredAt:'Data',paidCents:'Pago',dueCents:'Líquido'}
+const TAB_MAIN: Section[] = ['inicio', 'agenda', 'solicitacoes', 'financeiro']
 
-function Login(){
- const [email,setEmail]=useState(''); const [password,setPassword]=useState(''); const [busy,setBusy]=useState(false); const [error,setError]=useState(''); const [showPassword,setShowPassword]=useState(false)
- async function submit(e:FormEvent){e.preventDefault();setBusy(true);setError('');try{const csrfRes=await fetch('/api/auth/csrf');const csrf=await csrfRes.json();const body=new URLSearchParams({csrfToken:csrf.csrfToken,email,password,callbackUrl:location.origin,json:'true'});const response=await fetch('/api/auth/callback/credentials?json=true',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body,credentials:'include'});const result=await response.json().catch(()=>null);const errUrl=String(result?.url||'');const errCode=result?.error||(errUrl.includes('error=')?new URL(errUrl,location.origin).searchParams.get('error'):null);if(response.status>=500) setError('O servidor não respondeu corretamente. Verifique se o backend e o banco de dados estão iniciados.');else if(errCode==='CredentialsSignin') setError('E-mail ou senha inválidos. Confira os dados e tente novamente.');else if(errCode||!response.ok) setError('Não foi possível entrar. Verifique se o backend e o banco de dados estão funcionando.');else location.reload()}catch{setError('Falha ao conectar ao servidor. Confira se o backend está iniciado.')}finally{setBusy(false)}}
- return <main className="min-h-screen bg-[#fff7f8] text-[#39252b] flex items-center justify-center p-4"><form onSubmit={submit} className="w-full max-w-md rounded-3xl border border-[#f2dfe5] bg-white p-8 shadow-xl"><div className="mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-[#fce8ee] text-[#c75d79]"><Sparkles size={30}/></div><h1 className="text-center text-2xl font-bold text-[#39252b]">Gilvane Nails</h1><p className="mb-7 mt-2 text-center text-sm text-[#9d858d]">Entre para gerenciar seu espaço</p>{error&&<p role="alert" className="mb-4 rounded-xl bg-red-50 p-3 text-sm text-red-700">{error}</p>}<label className="mb-1 block text-sm font-medium">E-mail</label><input required type="email" autoComplete="username" value={email} onChange={e=>setEmail(e.target.value)} className="mb-4 w-full rounded-xl border border-[#ead9de] bg-white p-3 text-[#39252b] placeholder:text-[#b49da3] outline-none focus:border-[#d85f7b]" placeholder="voce@email.com"/><label className="mb-1 block text-sm font-medium">Senha</label><div className="relative mb-6"><input required type={showPassword?'text':'password'} autoComplete="current-password" value={password} onChange={e=>setPassword(e.target.value)} className="w-full rounded-xl border border-[#ead9de] bg-white p-3 pr-12 text-[#39252b] placeholder:text-[#b49da3] outline-none focus:border-[#d85f7b]" placeholder="Sua senha"/><button type="button" onClick={()=>setShowPassword(v=>!v)} aria-label={showPassword?'Ocultar senha':'Mostrar senha'} className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-[#9d858d] hover:text-[#c75d79]">{showPassword?<EyeOff size={18}/>:<Eye size={18}/>}</button></div><Button type="submit" disabled={busy} className="h-12 w-full rounded-xl bg-[#d85f7b] text-white hover:bg-[#c94f6c]">{busy?'Entrando…':'Entrar'}</Button><p className="mt-4 text-center text-xs text-[#9d858d]">Acesso privado da proprietária</p></form></main>
+/* ============================ LOGIN ============================ */
+function Login() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [show, setShow] = useState(false)
+
+  async function submit(e: FormEvent) {
+    e.preventDefault()
+    setBusy(true)
+    setError('')
+    try {
+      const csrf = await (await fetch('/api/auth/csrf')).json()
+      const body = new URLSearchParams({ csrfToken: csrf.csrfToken, email, password, callbackUrl: location.origin, json: 'true' })
+      const response = await fetch('/api/auth/callback/credentials?json=true', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body, credentials: 'include' })
+      const result = await response.json().catch(() => null)
+      const errUrl = String(result?.url || '')
+      const errCode = result?.error || (errUrl.includes('error=') ? new URL(errUrl, location.origin).searchParams.get('error') : null)
+      if (response.status >= 500) setError('O servidor não respondeu corretamente. Verifique se o backend e o banco de dados estão iniciados.')
+      else if (errCode === 'CredentialsSignin') setError('E-mail ou senha inválidos. Confira os dados e tente novamente.')
+      else if (errCode || !response.ok) setError('Não foi possível entrar. Verifique se o backend e o banco de dados estão funcionando.')
+      else location.reload()
+    } catch {
+      setError('Falha ao conectar ao servidor. Confira se o backend está iniciado.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <main className="flex min-h-dvh items-center justify-center bg-paper p-4">
+      <form onSubmit={submit} className="w-full max-w-sm rounded-3xl border border-line bg-white p-7 shadow-[0_20px_60px_-20px_rgba(174,63,91,0.25)]">
+        <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-brand text-white"><Sparkles className="size-7" /></div>
+        <h1 className="text-center text-2xl font-extrabold tracking-tight">Gilvane Nails</h1>
+        <p className="mb-6 mt-1.5 text-center text-sm text-ink-mute">Entre para ver a agenda e o caixa</p>
+        {error && <p role="alert" className="mb-4 rounded-xl bg-bad-soft px-3.5 py-3 text-sm font-medium text-bad">{error}</p>}
+        <label htmlFor="email" className={labelCls}>E-mail</label>
+        <input id="email" required type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} className={cn(inputCls, 'mb-4')} placeholder="voce@email.com" />
+        <label htmlFor="pw" className={labelCls}>Senha</label>
+        <div className="relative mb-6">
+          <input id="pw" required type={show ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className={cn(inputCls, 'pr-12')} placeholder="Sua senha" />
+          <button type="button" onClick={() => setShow((v) => !v)} aria-label={show ? 'Ocultar senha' : 'Mostrar senha'} className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-ink-mute hover:text-brand-strong">{show ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}</button>
+        </div>
+        <Btn type="submit" size="lg" className="w-full" loading={busy}>{busy ? 'Entrando…' : 'Entrar'}</Btn>
+      </form>
+    </main>
+  )
 }
 
-function AppContent(){
- const [session,setSession]=useState<any>(null); const [status,setStatus]=useState('loading'); const [section,setSection]=useState<Section>('inicio'); const [rows,setRows]=useState<Row[]>([]); const [clients,setClients]=useState<Row[]>([]); const [services,setServices]=useState<Row[]>([]); const [editing,setEditing]=useState<Row|null>(null); const [creating,setCreating]=useState(false); const [loading,setLoading]=useState(false); const [error,setError]=useState(''); const [notice,setNotice]=useState(''); const [dashboard,setDashboard]=useState<Row|null>(null); const [query,setQuery]=useState(''); const [pending,setPending]=useState(0); const [ver,setVer]=useState(0); const [completing,setCompleting]=useState<Row|null>(null)
- useEffect(()=>{fetch('/api/auth/session',{credentials:'include'}).then(r=>r.json()).then(s=>{setSession(s?.user?s:null);setStatus('ready')}).catch(()=>setStatus('ready'))},[])
- const logout=async()=>{try{const r=await fetch('/api/auth/csrf');const c=await r.json();await fetch('/api/auth/signout',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({csrfToken:c.csrfToken,callbackUrl:location.origin}),credentials:'include'})}finally{location.href='/'}}
- const api=useCallback(async(path:string,options:RequestInit={})=>{const r=await fetch(path,{...options,headers:{'Content-Type':'application/json',...(options.headers||{})},credentials:'include'});const body= r.status===204?null:await r.json().catch(()=>null);if(!r.ok)throw new Error(body?.error?.message||body?.message||`Erro ${r.status} ao acessar a API`);return body?.data??body},[])
- const load=useCallback(async()=>{if(!session)return;setLoading(true);setError('');try{if(section==='inicio'){setDashboard(await api('/api/dashboard'));setRows([])}else if(section==='configuracoes'||section==='financeiro'||section==='relatorios'){setRows([])}else{const result=await api(paths[section]+(['agenda','atendimentos','despesas'].includes(section)?'?limit=100':'')).catch((e:any)=>{setRows([]);throw e});setRows(Array.isArray(result)?result:result?.items||result?.data||[])}const [c,s,rq]=await Promise.all([api('/api/clients?limit=100'),api('/api/services?limit=100'),api('/api/booking-requests').catch(()=>null)]);setPending(rq?.items?.length||0);setClients(Array.isArray(c)?c:c?.items||[]);setServices(Array.isArray(s)?s:s?.items||[])}catch(e:any){setError(e.message||'Não foi possível carregar os dados.')}finally{setLoading(false)}},[api,section,session])
- useEffect(()=>{load()},[load])
- if(status==='loading')return <div className="grid min-h-screen place-items-center bg-[#fff7f8] text-[#9d858d]">Carregando…</div>
- if(!session)return <Login/>
- const titles:Record<string,string>={inicio:'Visão geral',agenda:'Agendamentos',solicitacoes:'Solicitações online',atendimentos:'Atendimentos',servicos:'Serviços',financeiro:'Financeiro',despesas:'Despesas',relatorios:'Relatórios',configuracoes:'Configurações'}
- const fields:Record<string,{key:string;label:string;type?:string;required?:boolean;options?:{value:string;label:string}[] }[]>={
- servicos:[{key:'name',label:'Nome do serviço',required:true},{key:'description',label:'Descrição',type:'textarea'},{key:'price',label:'Preço (R$)',type:'number',required:true},{key:'durationMinutes',label:'Duração (minutos)',type:'number',required:true},{key:'isActive',label:'Ativo',type:'checkbox'}],
- agenda:[{key:'clientName',label:'Nome do cliente',required:true},{key:'clientPhone',label:'Telefone / WhatsApp (opcional)'},{key:'serviceId',label:'Serviço',type:'select',required:true,options:services.map(x=>({value:x.id,label:x.name}))},{key:'startsAt',label:'Data e hora',type:'datetime-local',required:true},{key:'agreedPrice',label:'Preço combinado (R$)',type:'number'},{key:'status',label:'Status',type:'select',options:[{value:'SCHEDULED',label:'Agendado'},{value:'CONFIRMED',label:'Confirmado'},{value:'CANCELLED',label:'Cancelado'},{value:'NO_SHOW',label:'Não compareceu'}]},{key:'notes',label:'Observações',type:'textarea'}],
- atendimentos:[{key:'clientId',label:'Cliente',type:'select',required:true,options:clients.map(x=>({value:x.id,label:x.name}))},{key:'serviceId',label:'Serviço',type:'select',options:services.map(x=>({value:x.id,label:x.name}))},{key:'performedAt',label:'Data e hora',type:'datetime-local',required:true},{key:'price',label:'Valor (R$)',type:'number',required:true},{key:'discount',label:'Desconto (R$)',type:'number'},{key:'paymentMethod',label:'Forma de pagamento (lança o valor no saldo)',type:'select',options:METHODS},{key:'notes',label:'Observações',type:'textarea'}],
- despesas:[{key:'description',label:'Descrição da despesa',required:true},{key:'amount',label:'Valor (R$)',type:'number',required:true},{key:'incurredAt',label:'Data da despesa',type:'date',required:true},{key:'dueAt',label:'Vencimento',type:'date'},{key:'paidNow',label:'Já foi paga (entra no saldo agora)',type:'checkbox'},{key:'notes',label:'Observações',type:'textarea'}]
- }
- const labelFor=(key:string,r:Row)=>key==='clientId'?r.client?.name||clients.find(x=>x.id===r.clientId)?.name||'—':key==='serviceId'?r.service?.name||services.find(x=>x.id===r.serviceId)?.name||'—':key==='startsAt'||key==='performedAt'?date(r[key]):key==='priceCents'||key==='agreedPriceCents'||key==='amountCents'||key==='paidCents'||key==='dueCents'?money(r[key]):key==='status'?({'SCHEDULED':'Agendado','CONFIRMED':'Confirmado','COMPLETED':'Concluído','CANCELLED':'Cancelado','NO_SHOW':'Não compareceu','PENDING':'Pendente','PAID':'Pago','CASH':'Dinheiro','PIX':'Pix','DEBIT_CARD':'Débito','CREDIT_CARD':'Crédito','OTHER':'Outro'} as any)[r[key]]||r[key]:key==='isActive'?r[key]?'Sim':'Não':key==='durationMinutes'?`${r[key]} min`:r[key]??'—'
- async function save(form:FormData){const data:Row={};for(const f of fields[section]||[]){let v=form.get(f.key);if(f.type==='checkbox')data[f.key]=v==='on';else if(v!==null&&v!==''){if(['price','agreedPrice','discount','amount'].includes(f.key))data[f.key]=Math.round(Number(v)*100);else if(['durationMinutes'].includes(f.key))data[f.key]=Number(v);else if(['startsAt','performedAt'].includes(f.key))data[f.key]=new Date(String(v)).toISOString();else data[f.key]=String(v)}}if(section==='agenda'&&!data.status)data.status='SCHEDULED';try{if(editing){if(section==='servicos'&&'price' in data){data.priceCents=data.price;delete data.price}if(section==='agenda'&&'agreedPrice' in data){data.agreedPriceCents=data.agreedPrice;delete data.agreedPrice}if(section==='atendimentos'){if('price' in data){data.priceCents=data.price;delete data.price}if('discount' in data){data.discountCents=data.discount;delete data.discount}}if(section==='despesas'&&'amount' in data){data.amountCents=data.amount;delete data.amount}if(section==='despesas')delete data.paidNow;await api(`${paths[section]}/${editing.id}`,{method:'PATCH',body:JSON.stringify(data)})}else{if(section==='servicos'&&'price' in data){data.priceCents=data.price;delete data.price}if(section==='agenda'&&'agreedPrice' in data){data.agreedPriceCents=data.agreedPrice;delete data.agreedPrice}if(section==='atendimentos'){if('price' in data){data.priceCents=data.price;delete data.price}if('discount' in data){data.discountCents=data.discount;delete data.discount}}if(section==='despesas'&&'amount' in data){data.amountCents=data.amount;delete data.amount}await api(paths[section],{method:'POST',body:JSON.stringify(data)})}setCreating(false);setEditing(null);setNotice('Registro salvo com sucesso.');await load()}catch(e:any){setError(e.message||'Não foi possível salvar.')}}
- async function remove(r:Row){const isExpense=section==='despesas';if(!confirm(isExpense?'Deseja cancelar esta despesa?':'Deseja realmente excluir/arquivar este registro?'))return;try{if(isExpense){await api(`${paths[section]}/${r.id}/cancel`,{method:'PATCH',body:JSON.stringify({})})}else{await api(`${paths[section]}/${r.id}`,{method:'DELETE'})}setNotice(isExpense?'Despesa cancelada.':'Registro removido/arquivado.');await load()}catch(e:any){setError(e.message||'Não foi possível concluir a operação.')}}
- async function decide(r:Row,status:'CONFIRMED'|'CANCELLED'){if(status==='CANCELLED'&&!confirm('Recusar esta solicitação? O horário volta a ficar livre.'))return;try{await api(`/api/appointments/${r.id}/status`,{method:'PATCH',body:JSON.stringify({status})});setNotice(status==='CONFIRMED'?'Solicitação confirmada.':'Solicitação recusada.');await load()}catch(e:any){setError(e.message||'Não foi possível atualizar a solicitação.')}}
- async function payExpense(r:Row){try{await api(`/api/finance/expenses/${r.id}/pay`,{method:'PATCH',body:JSON.stringify({})});setNotice('Despesa paga. O valor saiu do saldo.');setVer(v=>v+1);await load()}catch(e:any){setError(e.message||'Não foi possível pagar a despesa.')}}
- async function completeOne(){if(!completing)return;try{const cents=Math.round(Number(String(completing.amount).replace(',','.'))*100);await api(`/api/appointments/${completing.row.id}/complete`,{method:'POST',body:JSON.stringify({method:completing.method,amountCents:cents})});setCompleting(null);setNotice('Atendimento concluído. O valor já está no saldo.');setVer(v=>v+1);await load()}catch(e:any){setError(e.message||'Não foi possível concluir.')}}
- async function confirmAppt(r:Row){try{await api(`/api/appointments/${r.id}/status`,{method:'PATCH',body:JSON.stringify({status:'CONFIRMED'})});setNotice('Agendamento confirmado.');await load()}catch(e:any){setError(e.message||'Não foi possível confirmar.')}}
- const openForm=(r?:Row)=>{setEditing(r||null);setCreating(true);setError('')}
- const formInitial=(f:any)=>{const r=editing||{};let v=r[f.key];if(f.key==='price')v=(r.priceCents??r.agreedPriceCents??0)/100;if(f.key==='agreedPrice')v=(r.agreedPriceCents??0)/100;if(f.key==='discount')v=(r.discountCents??0)/100;if(f.key==='amount')v=(r.amountCents??0)/100;if(f.key==='clientName')v=r.client?.name||'';if(f.key==='startsAt'||f.key==='performedAt')v=dateInput(v);if(f.key==='birthday'||f.key==='incurredAt'||f.key==='dueAt')v=v?String(v).slice(0,10):'';return v??(f.key==='isActive'?true:'')}
- const rowsFiltered=rows.filter(r=>JSON.stringify(r).toLowerCase().includes(query.toLowerCase()))
- return <div className="min-h-screen bg-[#fff8f9] text-[#39252b]"><div className="mx-auto flex min-h-screen max-w-[1600px]"><aside className="hidden w-64 shrink-0 border-r border-[#f2e4e8] bg-white p-5 md:block"><div className="mb-9 flex items-center gap-3"><div className="flex size-11 items-center justify-center rounded-xl bg-[#fce8ee] text-[#c75d79]"><Sparkles/></div><div><p className="font-bold">Gilvane Nails</p><p className="text-xs text-[#9d858d]">Gestão pessoal</p></div></div><nav className="space-y-1">{nav.map(n=>{const I=n.icon;return <button key={n.id} onClick={()=>{setSection(n.id);setCreating(false);setEditing(null);setQuery('')}} className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm ${section===n.id?'bg-[#fce8ee] font-semibold text-[#c75d79]':'text-[#806b72] hover:bg-[#fff5f7]'}`}><I size={18}/>{n.label}{n.id==='solicitacoes'&&pending>0&&<span className="ml-auto rounded-full bg-[#d85f7b] px-2 py-0.5 text-xs font-semibold text-white">{pending}</span>}</button>})}</nav><button onClick={()=>logout()} className="mt-8 flex w-full items-center gap-3 rounded-xl px-3 py-3 text-sm text-[#806b72] hover:bg-[#fff5f7]"><LogOut size={18}/>Sair da conta</button></aside><main className="min-w-0 flex-1 p-4 sm:p-7 lg:p-9"><header className="mb-7 flex flex-wrap items-center justify-between gap-4"><div><p className="text-sm text-[#c75d79]">Área da proprietária</p><h1 className="mt-1 text-2xl font-bold sm:text-3xl">{titles[section]}</h1></div><div className="flex items-center gap-2"><span className="hidden text-sm text-[#9d858d] sm:inline">{session.user?.name||session.user?.email}</span><Button variant="outline" onClick={load} className="rounded-xl border-[#f1dfe4]"><RefreshCw size={16}/></Button><Button variant="outline" onClick={()=>logout()} className="rounded-xl border-[#f1dfe4] md:hidden"><LogOut size={16}/></Button></div><div className="flex w-full gap-1 overflow-x-auto md:hidden">{nav.map(n=><button key={n.id} onClick={()=>{setSection(n.id);setCreating(false)}} className={`whitespace-nowrap rounded-lg px-3 py-2 text-xs ${section===n.id?'bg-[#fce8ee] text-[#c75d79]':'bg-white'}`}>{n.label}{n.id==='solicitacoes'&&pending>0?` (${pending})`:''}</button>)}</div></header>
- {error&&<div className="mb-4 flex items-start justify-between rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}<button onClick={()=>setError('')}><X size={16}/></button></div>}{notice&&<div className="mb-4 flex justify-between rounded-xl bg-green-50 p-3 text-sm text-green-700">{notice}<button onClick={()=>setNotice('')}><X size={16}/></button></div>}
- {section==='financeiro'?<FinanceView api={api} refreshKey={ver}/>:section==='relatorios'?<ReportsView api={api} refreshKey={ver}/>:section==='inicio'?<><div className="mb-6 grid grid-cols-2 gap-3 xl:grid-cols-3">{[{label:'Recebido hoje',value:money(dashboard?.today?.incomeReceivedCents||0)},{label:'Atendimentos hoje',value:dashboard?.today?.attendancesCount??'—'},{label:'Despesas hoje',value:money(dashboard?.today?.expensesPaidCents||0)},{label:'Saldo do mês',value:money(dashboard?.month?.cashBalanceCents||0)},{label:'Saldo total em caixa',value:money(dashboard?.totalBalanceCents||0)},{label:'A receber hoje',value:money(dashboard?.today?.expectedCents||0)}].map(x=><div key={x.label} className="rounded-2xl border border-[#f2e4e8] bg-white p-5"><p className="text-sm text-[#9d858d]">{x.label}</p><p className="mt-2 text-2xl font-bold">{x.value}</p></div>)}</div><div className="rounded-2xl border border-[#f2e4e8] bg-white p-6">{pending>0&&<button onClick={()=>setSection('solicitacoes')} className="mb-5 w-full rounded-xl bg-[#fff0f3] p-3 text-left text-sm font-medium text-[#c75d79]">Você tem {pending} solicitação(ões) de horário aguardando resposta →</button>}<h2 className="font-semibold">Comece por aqui</h2><p className="mt-2 text-sm text-[#9d858d]">Cadastre clientes e serviços, depois crie agendamentos e registre os atendimentos. Os dados são carregados da API e salvos no banco do backend.</p><div className="mt-5 flex flex-wrap gap-2">{(['servicos','agenda','atendimentos','financeiro'] as Section[]).map(s=><Button key={s} onClick={()=>setSection(s)} className="rounded-xl bg-[#d85f7b] text-white hover:bg-[#c94f6c]">{titles[s]}</Button>)}</div></div></>:section==='solicitacoes'?<div className="space-y-3">{loading&&rows.length===0?<p className="text-sm text-[#9d858d]">Carregando…</p>:rows.length===0?<div className="rounded-2xl border border-[#f2e4e8] bg-white p-10 text-center"><div className="mx-auto flex size-12 items-center justify-center rounded-full bg-[#fff0f3] text-[#d85f7b]"><Inbox/></div><p className="mt-3 font-medium">Nenhuma solicitação pendente</p><p className="mt-1 text-sm text-[#9d858d]">Quando um cliente pedir horário pelo link de agendamento, ele aparece aqui.</p></div>:rows.map(r=>{const digits=String(r.client?.phone||'').replace(/\D/g,'');const wa=digits.length>=10?`https://wa.me/${digits.startsWith('55')?digits:'55'+digits}`:'';const info=String(r.notes||'').replace('[Solicitação online]','').trim();return <div key={r.id} className="rounded-2xl border border-[#f2e4e8] bg-white p-5"><div className="flex flex-wrap items-start justify-between gap-3"><div className="min-w-0"><p className="font-semibold">{r.client?.name||'Cliente'}</p><p className="mt-1 text-sm text-[#806b72]">{r.service?.name||'Serviço'} · {date(r.startsAt)}</p>{r.client?.phone&&<p className="mt-1 text-sm text-[#9d858d]">Telefone: {r.client.phone}</p>}{info&&<p className="mt-2 rounded-lg bg-[#fff8f9] p-2 text-xs text-[#806b72]">{info}</p>}</div><div className="flex flex-wrap gap-2">{wa&&<a href={wa} target="_blank" rel="noreferrer" className="rounded-xl border border-[#f1dfe4] px-3 py-2 text-sm text-[#806b72] hover:bg-[#fff5f7]">WhatsApp</a>}<Button onClick={()=>decide(r,'CONFIRMED')} className="rounded-xl bg-[#d85f7b] text-white hover:bg-[#c94f6c]">Confirmar</Button><Button variant="outline" onClick={()=>decide(r,'CANCELLED')} className="rounded-xl border-[#f1dfe4] text-red-500">Recusar</Button></div></div></div>})}</div>:section==='configuracoes'?<div className="rounded-2xl border border-[#f2e4e8] bg-white p-6"><h2 className="font-semibold">Configuração da API</h2><p className="mt-2 text-sm text-[#806b72]">A autenticação é feita pelo backend. Configure a URL do backend no rewrite do Next.js e mantenha o banco e as variáveis de ambiente do backend definidos no README.</p><p className="mt-2 text-sm text-[#9d858d]">Conta conectada: {session.user?.email}</p><div className="mt-5 rounded-xl bg-[#fff8f9] p-4"><p className="text-sm font-medium">Link de agendamento para clientes</p><p className="mt-1 break-all text-sm text-[#806b72]">{typeof location!=='undefined'?`${location.origin}/agendar`:'/agendar'}</p><Button variant="outline" className="mt-3 rounded-xl border-[#f1dfe4]" onClick={()=>{navigator.clipboard?.writeText(`${location.origin}/agendar`);setNotice('Link copiado.')}}>Copiar link</Button></div><Button className="mt-5 rounded-xl bg-[#d85f7b] text-white" onClick={()=>logout()}>Sair da conta</Button></div>:<>
- {section==='agenda'&&completing&&<div className="mb-5 rounded-2xl border border-green-200 bg-green-50 p-5"><div className="mb-3 flex items-center justify-between"><h2 className="font-semibold">Concluir atendimento — {completing.row.client?.name} · {completing.row.service?.name}</h2><button onClick={()=>setCompleting(null)}><X size={18}/></button></div><div className="flex flex-wrap items-end gap-3"><label className="text-sm"><span className="mb-1 block text-xs text-[#806b72]">Valor recebido (R$)</span><input type="number" min="0" step="0.01" value={completing.amount} onChange={e=>setCompleting({...completing,amount:e.target.value})} className="w-32 rounded-xl border border-[#ead9de] bg-white px-3 py-2 text-sm outline-none focus:border-[#d85f7b]"/></label><label className="text-sm"><span className="mb-1 block text-xs text-[#806b72]">Pagamento</span><select value={completing.method} onChange={e=>setCompleting({...completing,method:e.target.value})} className="rounded-xl border border-[#ead9de] bg-white px-3 py-2 text-sm outline-none focus:border-[#d85f7b]">{METHODS.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}</select></label><Button onClick={completeOne} className="rounded-xl bg-[#d85f7b] text-white hover:bg-[#c94f6c]"><CheckCheck size={16}/> Concluir e lançar no saldo</Button></div></div>}
- {section==='agenda'&&<CloseDayPanel api={api} onDone={()=>{setVer(v=>v+1);load()}} notify={setNotice} fail={setError}/>}
- <div className="mb-4 flex flex-col gap-3 sm:flex-row"><input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar nos registros…" className="min-w-0 flex-1 rounded-xl border border-[#ead9de] bg-white px-4 py-3 text-sm text-[#39252b] placeholder:text-[#b49da3] outline-none focus:border-[#d85f7b]"/><Button onClick={()=>openForm()} className="rounded-xl bg-[#d85f7b] text-white hover:bg-[#c94f6c]"><Plus size={17}/> {section==='agenda'?'Novo agendamento':'Novo registro'}</Button></div>
- {creating&&<div className="mb-5 rounded-2xl border border-[#f2d6df] bg-white p-5 shadow-sm"><div className="mb-4 flex items-center justify-between"><h2 className="font-semibold">{editing?'Editar registro':'Novo registro'} — {titles[section]}</h2><button onClick={()=>{setCreating(false);setEditing(null)}}><X size={18}/></button></div><datalist id="clients-list">{clients.map(c=><option key={c.id} value={c.name}/>)}</datalist><form action={save} className="grid gap-4 sm:grid-cols-2">{(fields[section]||[]).filter(f=>!(editing&&(f.key==='paymentMethod'||f.key==='paidNow'||f.key==='clientPhone'))).map(f=><label key={f.key} className={`block text-sm ${f.type==='textarea'?'sm:col-span-2':''}`}><span className="mb-1.5 block font-medium">{f.label}{f.required?' *':''}</span>{f.type==='textarea'?<textarea name={f.key} defaultValue={formInitial(f)} rows={3} className="w-full rounded-xl border border-[#ead9de] bg-white p-3 text-[#39252b] outline-none focus:border-[#d85f7b]"/>:f.type==='select'?<select name={f.key} defaultValue={formInitial(f)} required={f.required} className="w-full rounded-xl border border-[#ead9de] bg-white p-3 text-[#39252b] outline-none focus:border-[#d85f7b]"><option value="">Selecione…</option>{f.options?.map((o:any)=><option key={o.value} value={o.value}>{o.label}</option>)}</select>:f.type==='checkbox'?<input name={f.key} type="checkbox" defaultChecked={!!formInitial(f)} className="ml-1 size-5 accent-[#d85f7b]"/>:<input name={f.key} type={f.type||'text'} list={f.key==='clientName'?'clients-list':undefined} autoComplete={f.key==='clientName'?'off':undefined} defaultValue={formInitial(f)} required={f.required} min={f.type==='number'?'0':undefined} step={f.type==='number'?'0.01':undefined} className="w-full rounded-xl border border-[#ead9de] bg-white p-3 text-[#39252b] outline-none focus:border-[#d85f7b]"/>}</label>)}<div className="flex gap-2 sm:col-span-2"><Button type="submit" className="rounded-xl bg-[#d85f7b] text-white hover:bg-[#c94f6c]">Salvar</Button><Button type="button" variant="outline" onClick={()=>{setCreating(false);setEditing(null)}} className="rounded-xl">Cancelar</Button></div></form></div>}
- <div className="overflow-hidden rounded-2xl border border-[#f2e4e8] bg-white"><div className="flex items-center justify-between border-b border-[#f4e9ec] px-5 py-4"><div><h2 className="font-semibold">Registros cadastrados</h2><p className="mt-1 text-xs text-[#9d858d]">{rowsFiltered.length} registro(s) encontrado(s)</p></div>{loading&&<span className="text-xs text-[#9d858d]">Carregando…</span>}</div>{!loading&&rowsFiltered.length===0?<div className="p-10 text-center"><div className="mx-auto flex size-12 items-center justify-center rounded-full bg-[#fff0f3] text-[#d85f7b]"><Plus/></div><p className="mt-3 font-medium">Nenhum registro encontrado</p><p className="mt-1 text-sm text-[#9d858d]">Use “Novo registro” para cadastrar o primeiro.</p></div>:<div className="overflow-x-auto"><table className="w-full min-w-[620px] text-left text-sm"><thead className="bg-[#fff8f9] text-xs uppercase tracking-wide text-[#9d858d]"><tr>{(section==='servicos'?['name','priceCents','durationMinutes','isActive']:section==='agenda'?['clientId','serviceId','startsAt','status']:section==='atendimentos'?['clientId','serviceId','performedAt','dueCents','paidCents']:['description','amountCents','incurredAt','status']).map(k=><th key={k} className="px-4 py-3 font-medium">{columnLabels[k]||k}</th>)}<th className="px-4 py-3">Ações</th></tr></thead><tbody className="divide-y divide-[#f4e9ec]">{rowsFiltered.map(r=><tr key={r.id} className="hover:bg-[#fffafb]">{(section==='servicos'?['name','priceCents','durationMinutes','isActive']:section==='agenda'?['clientId','serviceId','startsAt','status']:section==='atendimentos'?['clientId','serviceId','performedAt','dueCents','paidCents']:['description','amountCents','incurredAt','status']).map(k=><td key={k} className="max-w-[240px] truncate px-4 py-3">{labelFor(k,r)}</td>)}<td className="px-4 py-3"><div className="flex gap-2">{section==='agenda'&&r.status==='SCHEDULED'&&<button title="Confirmar" onClick={()=>confirmAppt(r)} className="flex items-center gap-1 rounded-lg px-2 text-xs text-[#c75d79] hover:bg-[#fce8ee]"><BadgeCheck size={16}/>Confirmar</button>}{section==='agenda'&&(r.status==='SCHEDULED'||r.status==='CONFIRMED')&&<button title="Concluir atendimento" onClick={()=>setCompleting({row:r,method:'PIX',amount:((r.agreedPriceCents||0)/100).toFixed(2)})} className="flex items-center gap-1 rounded-lg px-2 text-xs text-green-700 hover:bg-green-50"><CheckCheck size={16}/>Concluir</button>}{section==='despesas'&&r.status==='PENDING'&&<button title="Marcar como paga" onClick={()=>payExpense(r)} className="flex items-center gap-1 rounded-lg px-2 text-xs text-green-700 hover:bg-green-50"><Check size={16}/>Pagar</button>}{!(section==='agenda'&&(r.status==='COMPLETED'||r.status==='NO_SHOW'))&&!(section==='despesas'&&r.status!=='PENDING')&&<button title="Editar" onClick={()=>openForm(r)} className="rounded-lg p-2 text-[#c75d79] hover:bg-[#fce8ee]"><Pencil size={16}/></button>}{section!=='atendimentos'&&!(section==='agenda'&&(r.status==='COMPLETED'||r.status==='CANCELLED'||r.status==='NO_SHOW'))&&!(section==='despesas'&&r.status!=='PENDING')&&<button title="Excluir/arquivar" onClick={()=>remove(r)} className="rounded-lg p-2 text-red-500 hover:bg-red-50"><Trash2 size={16}/></button>}</div></td></tr>)}</tbody></table></div>}</div></>}
- <footer className="mt-8 text-center text-xs text-[#b49da3]">Gilvane Nails · Seus registros são privados e editáveis</footer></main></div></div>
+/* ============================ INÍCIO ============================ */
+function Dashboard({ api, name, pending, go, newAppt, refreshKey }: { api: Api; name: string; pending: number; go: (s: Section) => void; newAppt: () => void; refreshKey: number }) {
+  const [data, setData] = useState<Row | null>(null)
+  const [today, setToday] = useState<Row[]>([])
+  const [error, setError] = useState('')
+  useEffect(() => {
+    api('/api/dashboard').then(setData).catch((e) => setError(e.message))
+    api('/api/appointments/today').then((r) => setToday(Array.isArray(r) ? r : r?.items ?? [])).catch(() => {})
+  }, [api, refreshKey])
+
+  const open = today.filter((a) => a.status === 'SCHEDULED' || a.status === 'CONFIRMED')
+  const kpi = [
+    { label: 'Recebido hoje', value: formatBRL(data?.today?.incomeReceivedCents), tone: 'text-ok' },
+    { label: 'A receber hoje', value: formatBRL(data?.today?.expectedCents) },
+    { label: 'Saldo do mês', value: formatBRL(data?.month?.cashBalanceCents) },
+    { label: 'Saldo em caixa', value: formatBRL(data?.totalBalanceCents) },
+  ]
+  return (
+    <div className="space-y-6 pb-24 md:pb-0">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <p className="text-sm text-ink-mute">{greeting()}, {name.split(' ')[0]}</p>
+          <p className="text-lg font-bold">{open.length === 0 ? 'Nenhum atendimento em aberto hoje' : `${open.length} atendimento${open.length > 1 ? 's' : ''} em aberto hoje`}</p>
+        </div>
+        <Btn size="lg" onClick={newAppt}><Plus className="size-5" />Novo agendamento</Btn>
+      </div>
+
+      {pending > 0 && (
+        <button onClick={() => go('solicitacoes')} className="flex w-full items-center justify-between rounded-2xl bg-brand-soft px-4 py-3.5 text-left text-sm font-semibold text-brand-strong hover:bg-[#f7dae2]">
+          <span>{pending} {pending > 1 ? 'pedidos de horário esperam' : 'pedido de horário espera'} sua resposta</span><span aria-hidden>Ver</span>
+        </button>
+      )}
+      {error && <p className="rounded-xl bg-bad-soft px-4 py-3 text-sm font-medium text-bad">{error}</p>}
+
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {kpi.map((k) => (
+          <div key={k.label} className="rounded-3xl border border-line bg-white p-4">
+            <p className="text-[13px] text-ink-mute">{k.label}</p>
+            <p className={cn('mt-1 text-xl font-extrabold tracking-tight sm:text-2xl', k.tone)}>{data ? k.value : '—'}</p>
+          </div>
+        ))}
+      </div>
+
+      <section>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-bold">Hoje na agenda</h2>
+          <button onClick={() => go('agenda')} className="text-sm font-bold text-brand-strong hover:underline">Abrir agenda</button>
+        </div>
+        {today.length === 0 ? (
+          <Empty icon={CalendarDays} title="Agenda livre hoje" text="Quando marcar um horário para hoje, ele aparece aqui." />
+        ) : (
+          <div className="divide-y divide-line overflow-hidden rounded-3xl border border-line bg-white">
+            {today.map((a) => {
+              const st = APPT_STATUS[a.status]
+              return (
+                <div key={a.id} className="flex items-center gap-4 px-4 py-3.5">
+                  <p className="w-14 text-lg font-bold">{toTimeKey(a.startsAt)}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-semibold">{a.client?.name}</p>
+                    <p className="truncate text-sm text-ink-soft">{a.service?.name}</p>
+                  </div>
+                  <Pill tone={st?.tone}>{st?.label ?? a.status}</Pill>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
+    </div>
+  )
 }
-export default function GilvaneNailsApp(){return <AppContent/>}
+
+/* ============================ SOLICITAÇÕES ============================ */
+function Requests({ api, notify, onChanged, refreshKey }: { api: Api; notify: (t: string, k?: 'ok' | 'error') => void; onChanged: () => void; refreshKey: number }) {
+  const [rows, setRows] = useState<Row[] | null>(null)
+  const [error, setError] = useState('')
+  const [refuse, setRefuse] = useState<Row | null>(null)
+  const load = useCallback(() => {
+    api('/api/booking-requests').then((r) => setRows(Array.isArray(r) ? r : r?.items ?? [])).catch((e) => { setError(e.message); setRows([]) })
+  }, [api])
+  useEffect(load, [load, refreshKey])
+
+  async function decide(r: Row, status: 'CONFIRMED' | 'CANCELLED') {
+    try {
+      await api(`/api/appointments/${r.id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) })
+      notify(status === 'CONFIRMED' ? 'Solicitação confirmada.' : 'Solicitação recusada. O horário ficou livre.')
+      load(); onChanged()
+    } catch (e: any) { notify(e.message || 'Não foi possível atualizar.', 'error') }
+  }
+
+  if (rows === null) return <div className="h-28 animate-pulse rounded-3xl bg-white ring-1 ring-line" />
+  if (error) return <p className="rounded-xl bg-bad-soft px-4 py-3 text-sm font-medium text-bad">{error}</p>
+  if (rows.length === 0) return <Empty icon={Inbox} title="Nenhuma solicitação pendente" text="Quando uma cliente pedir horário pelo link de agendamento, o pedido aparece aqui." />
+  return (
+    <div className="space-y-3 pb-24 md:pb-0">
+      {rows.map((r) => {
+        const info = String(r.notes || '').replace('[Solicitação online]', '').trim()
+        return (
+          <article key={r.id} className="rounded-3xl border border-line bg-white p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-base font-bold">{r.client?.name || 'Cliente'}</p>
+                <p className="mt-0.5 flex items-center gap-1.5 text-sm text-ink-soft"><Clock className="size-4" />{formatDateKey(toDateKey(r.startsAt))} às {toTimeKey(r.startsAt)} · {r.service?.name}</p>
+                {r.client?.phone && <p className="mt-0.5 text-sm text-ink-mute">{r.client.phone}</p>}
+                {info && <p className="mt-2 rounded-xl bg-paper px-3 py-2 text-[13px] text-ink-soft">{info}</p>}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {r.client?.phone && <a href={whatsappLink(r.client.phone)} target="_blank" rel="noreferrer" aria-label="Chamar no WhatsApp" className="flex size-10 items-center justify-center rounded-xl text-ok hover:bg-ok-soft"><MessageCircle className="size-5" /></a>}
+                <Btn variant="outline" size="md" onClick={() => setRefuse(r)}>Recusar</Btn>
+                <Btn size="md" onClick={() => decide(r, 'CONFIRMED')}><Check className="size-4" />Confirmar</Btn>
+              </div>
+            </div>
+          </article>
+        )
+      })}
+      {refuse && <ConfirmDialog danger title="Recusar este pedido?" confirmLabel="Recusar" onClose={() => setRefuse(null)} text="O horário volta a ficar livre para outras clientes." onConfirm={async () => { await decide(refuse, 'CANCELLED'); setRefuse(null) }} />}
+    </div>
+  )
+}
+
+/* ============================ CONFIGURAÇÕES ============================ */
+function Config({ email, notify, logout }: { email?: string; notify: (t: string) => void; logout: () => void }) {
+  const link = typeof location !== 'undefined' ? `${location.origin}/agendar` : '/agendar'
+  return (
+    <div className="max-w-xl space-y-4">
+      <div className="rounded-3xl border border-line bg-white p-5">
+        <h2 className="font-bold">Link de agendamento para clientes</h2>
+        <p className="mt-1 text-sm text-ink-mute">Envie no WhatsApp ou coloque no Instagram. As clientes escolhem o horário e o pedido chega em Solicitações.</p>
+        <p className="mt-3 break-all rounded-xl bg-paper px-3.5 py-3 text-sm font-medium">{link}</p>
+        <Btn variant="soft" className="mt-3" onClick={() => { navigator.clipboard?.writeText(link); notify('Link copiado.') }}><Copy className="size-4" />Copiar link</Btn>
+      </div>
+      <div className="rounded-3xl border border-line bg-white p-5">
+        <h2 className="font-bold">Conta</h2>
+        <p className="mt-1 text-sm text-ink-mute">Conectada como {email}</p>
+        <Btn variant="outline" className="mt-3" onClick={logout}><LogOut className="size-4" />Sair da conta</Btn>
+      </div>
+    </div>
+  )
+}
+
+/* ============================ APP ============================ */
+type Api = (path: string, options?: RequestInit) => Promise<any>
+
+function AppContent() {
+  const [session, setSession] = useState<any>(null)
+  const [status, setStatus] = useState<'loading' | 'ready'>('loading')
+  const [section, setSection] = useState<Section>('inicio')
+  const [clients, setClients] = useState<Row[]>([])
+  const [services, setServices] = useState<Row[]>([])
+  const [pending, setPending] = useState(0)
+  const [ver, setVer] = useState(0)
+  const [newSignal, setNewSignal] = useState(0)
+  const [more, setMore] = useState(false)
+  const [toasts, setToasts] = useState<Toast[]>([])
+
+  useEffect(() => {
+    fetch('/api/auth/session', { credentials: 'include' }).then((r) => r.json()).then((s) => { setSession(s?.user ? s : null); setStatus('ready') }).catch(() => setStatus('ready'))
+  }, [])
+
+  const logout = async () => {
+    try {
+      const c = await (await fetch('/api/auth/csrf')).json()
+      await fetch('/api/auth/signout', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ csrfToken: c.csrfToken, callbackUrl: location.origin }), credentials: 'include' })
+    } finally { location.href = '/' }
+  }
+
+  const api: Api = useCallback(async (path, options = {}) => {
+    const r = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) }, credentials: 'include', cache: 'no-store' })
+    const body = r.status === 204 ? null : await r.json().catch(() => null)
+    if (!r.ok) {
+      const details = Array.isArray(body?.error?.details) ? body.error.details.map((x: any) => x.message).filter(Boolean).join(' • ') : ''
+      throw new Error(details || body?.error?.message || body?.message || `Erro ${r.status} ao acessar a API`)
+    }
+    return body?.data ?? body
+  }, [])
+
+  const notify = useCallback((text: string, kind: 'ok' | 'error' = 'ok') => {
+    const id = Date.now() + Math.random()
+    setToasts((t) => [...t.slice(-2), { id, kind, text }])
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'error' ? 7000 : 3500)
+  }, [])
+
+  const refs = useCallback(async () => {
+    if (!session) return
+    try {
+      const [c, s, rq] = await Promise.all([api('/api/clients?limit=100'), api('/api/services?limit=100'), api('/api/booking-requests').catch(() => null)])
+      setClients(Array.isArray(c) ? c : c?.items || [])
+      setServices(Array.isArray(s) ? s : s?.items || [])
+      setPending(rq?.items?.length ?? (Array.isArray(rq) ? rq.length : 0))
+    } catch (e: any) { notify(e.message || 'Não foi possível carregar os dados.', 'error') }
+  }, [api, session, notify])
+  useEffect(() => { refs() }, [refs, ver])
+
+  const changed = useCallback(() => setVer((v) => v + 1), [])
+  const go = (s: Section) => { setSection(s); setMore(false); window.scrollTo({ top: 0 }) }
+  const newAppt = () => { setSection('agenda'); setNewSignal((n) => n + 1) }
+
+  if (status === 'loading') return <div className="grid min-h-dvh place-items-center bg-paper text-ink-mute">Carregando…</div>
+  if (!session) return <Login />
+
+  const current = NAV.find((n) => n.id === section)!
+  const userName = session.user?.name || session.user?.email || ''
+  const navBtn = (n: (typeof NAV)[number]) => {
+    const I = n.icon
+    const active = section === n.id
+    return (
+      <button key={n.id} onClick={() => go(n.id)} aria-current={active ? 'page' : undefined}
+        className={cn('flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-[15px] font-medium transition-colors', active ? 'bg-brand-soft font-bold text-brand-strong' : 'text-ink-soft hover:bg-paper hover:text-ink')}>
+        <I className="size-[18px]" />{n.label}
+        {n.id === 'solicitacoes' && pending > 0 && <span className="ml-auto rounded-full bg-brand px-2 py-0.5 text-xs font-bold text-white">{pending}</span>}
+      </button>
+    )
+  }
+
+  return (
+    <div className="min-h-dvh bg-paper">
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-line bg-white p-4 md:flex">
+        <div className="mb-7 flex items-center gap-3 px-1.5 pt-1">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-brand text-white"><Sparkles className="size-5" /></div>
+          <div><p className="font-extrabold leading-5">Gilvane Nails</p><p className="text-xs text-ink-mute">Agenda e caixa</p></div>
+        </div>
+        <nav className="space-y-0.5">{NAV.map(navBtn)}</nav>
+        <div className="mt-auto border-t border-line pt-3">
+          <p className="truncate px-3.5 pb-2 text-xs text-ink-mute">{userName}</p>
+          <button onClick={logout} className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-[15px] font-medium text-ink-soft hover:bg-paper"><LogOut className="size-[18px]" />Sair da conta</button>
+        </div>
+      </aside>
+
+      <div className="md:pl-64">
+        <main className="mx-auto max-w-4xl px-4 pb-8 pt-[max(1.25rem,env(safe-area-inset-top))] sm:px-6 md:pt-8">
+          <header className="mb-6">
+            <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">{current.label}</h1>
+            <p className="mt-1 text-sm text-ink-mute">{current.hint}</p>
+          </header>
+
+          {section === 'inicio' && <Dashboard api={api} name={userName} pending={pending} go={go} newAppt={newAppt} refreshKey={ver} />}
+          {section === 'agenda' && <AgendaView api={api} services={services} clients={clients} notify={notify} onChanged={changed} newSignal={newSignal} />}
+          {section === 'solicitacoes' && <Requests api={api} notify={notify} onChanged={changed} refreshKey={ver} />}
+          {(section === 'servicos' || section === 'atendimentos' || section === 'despesas') && <RecordsView key={section} section={section} api={api} clients={clients} services={services} notify={notify} onChanged={changed} refreshKey={ver} />}
+          {section === 'financeiro' && <FinanceView api={api} refreshKey={ver} />}
+          {section === 'relatorios' && <ReportsView api={api} refreshKey={ver} />}
+          {section === 'configuracoes' && <Config email={session.user?.email} notify={notify} logout={logout} />}
+        </main>
+      </div>
+
+      {/* navegação do celular */}
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-white/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden" aria-label="Navegação principal">
+        <div className="mx-auto grid max-w-lg grid-cols-5">
+          {[...TAB_MAIN.map((id) => NAV.find((n) => n.id === id)!), { id: 'more' as const, label: 'Mais', icon: Menu }].map((n) => {
+            const I = n.icon
+            const active = n.id === 'more' ? !TAB_MAIN.includes(section) : section === n.id
+            return (
+              <button key={n.id} onClick={() => (n.id === 'more' ? setMore(true) : go(n.id))} aria-current={active ? 'page' : undefined}
+                className={cn('relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-semibold', active ? 'text-brand-strong' : 'text-ink-mute')}>
+                <I className="size-5" />{n.label}
+                {n.id === 'solicitacoes' && pending > 0 && <span className="absolute right-[22%] top-2 flex size-4 items-center justify-center rounded-full bg-brand text-[10px] font-bold text-white">{pending}</span>}
+              </button>
+            )
+          })}
+        </div>
+      </nav>
+
+      {more && (
+        <Modal title="Mais opções" onClose={() => setMore(false)}>
+          <div className="space-y-1">
+            {NAV.filter((n) => !TAB_MAIN.includes(n.id)).map(navBtn)}
+            <button onClick={logout} className="flex w-full items-center gap-3 rounded-xl px-3.5 py-2.5 text-left text-[15px] font-medium text-bad hover:bg-bad-soft"><LogOut className="size-[18px]" />Sair da conta</button>
+          </div>
+        </Modal>
+      )}
+
+      <ToastHost toasts={toasts} dismiss={(id) => setToasts((t) => t.filter((x) => x.id !== id))} />
+    </div>
+  )
+}
+
+export default function GilvaneNailsApp() {
+  return <AppContent />
+}

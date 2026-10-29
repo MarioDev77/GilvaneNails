@@ -30,12 +30,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 }
 
+// DELETE = excluir de vez (engano). Para só liberar o horário, use PATCH .../status com CANCELLED.
 export async function DELETE(_req: NextRequest, { params }: Params) {
   try {
     const user = await requireAuth()
     const { id } = await params
-    const appointment = await appointmentService.cancelAppointment(user.id, id)
-    return success(appointment)
+    const result = await appointmentService.deleteAppointment(user.id, id)
+    return success(result)
   } catch (error) {
     return handleApiError(error)
   }
