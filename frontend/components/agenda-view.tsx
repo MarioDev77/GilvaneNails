@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CalendarDays, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, MessageCircle, MoreVertical, Pencil, Plus, Search, Trash2, Undo2, UserX, X, Ban, RotateCcw } from 'lucide-react'
+import { CalendarDays, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, MessageCircle, MoreVertical, Pencil, Plus, Search, Trash2, Undo2, UserX, X, Ban, RotateCcw, CalendarPlus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { addDaysKey, formatBRL, formatDateKey, formatLongDate, moneyToInput, parseMoney, toDateKey, toISO, toTimeKey, todayKey, whatsappLink } from '@/lib/format'
 import { APPT_STATUS, Btn, ConfirmDialog, Empty, Modal, Pill, inputCls, labelCls } from '@/components/ui-bits'
@@ -49,7 +49,8 @@ export default function AgendaView({ api, services, clients, notify, onChanged, 
   const [totalPages, setTotalPages] = useState(1)
   const [selecting, setSelecting] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [form, setForm] = useState<{ appt?: Appt } | null>(null)
+  const [form, setForm] = useState<{ appt?: Appt; rebook?: Appt } | null>(null)
+  const [askNext, setAskNext] = useState<Appt | null>(null)
   const [completing, setCompleting] = useState<Appt | null>(null)
   const [confirm, setConfirm] = useState<null | { kind: 'delete' | 'cancel' | 'noshow' | 'reopen' | 'bulk'; appt?: Appt }>(null)
   const [closeDay, setCloseDay] = useState(false)
@@ -142,7 +143,7 @@ export default function AgendaView({ api, services, clients, notify, onChanged, 
 
   const card = (a: Appt, showDate: boolean) => (
     <ApptCard key={a.id} a={a} showDate={showDate} selecting={selecting} checked={selected.has(a.id)} onToggle={() => toggle(a.id)}
-      onComplete={() => setCompleting(a)} onEdit={() => setForm({ appt: a })}
+      onComplete={() => setCompleting(a)} onRebook={() => setForm({ rebook: a })} onEdit={() => setForm({ appt: a })}
       onConfirmStatus={() => setStatus(a, 'CONFIRMED', 'Agendamento confirmado.')}
       onReactivate={() => setStatus(a, 'SCHEDULED', 'Horário reativado.')}
       onAsk={(kind) => setConfirm({ kind, appt: a })} />
@@ -269,8 +270,14 @@ export default function AgendaView({ api, services, clients, notify, onChanged, 
         </button>
       )}
 
-      {form && <ApptForm api={api} services={services} clients={clients} appt={form.appt} defaultDate={mode === 'day' ? day : todayKey()} onClose={() => setForm(null)} onSaved={(d) => { setForm(null); notify(form.appt ? 'Agendamento atualizado.' : 'Agendamento criado.'); if (d) setDay(d); setMode('day'); changed() }} />}
-      {completing && <CompleteModal appt={completing} onClose={() => setCompleting(null)} onDone={async (method, cents) => { const ok = await act(() => api(`/api/appointments/${completing.id}/complete`, { method: 'POST', body: JSON.stringify({ method, amountCents: cents }) }), 'Atendimento concluído. O valor já está no saldo.'); if (ok) setCompleting(null) }} />}
+      {form && <ApptForm api={api} services={services} clients={clients} appt={form.appt} rebook={form.rebook} defaultDate={mode === 'day' ? day : todayKey()} onClose={() => setForm(null)} onSaved={(d) => { setForm(null); notify(form.appt ? 'Agendamento atualizado.' : 'Agendamento criado.'); if (d) setDay(d); setMode('day'); changed() }} />}
+      {completing && <CompleteModal appt={completing} onClose={() => setCompleting(null)} onDone={async (method, cents) => { const ok = await act(() => api(`/api/appointments/${completing.id}/complete`, { method: 'POST', body: JSON.stringify({ method, amountCents: cents }) }), 'Atendimento concluído. O valor já está no saldo.'); if (ok) { setAskNext(completing); setCompleting(null) } }} />}
+      {askNext && (
+        <Modal title="Atendimento concluído" subtitle={`${askNext.client.name} · ${askNext.service.name}`} onClose={() => setAskNext(null)}
+          footer={<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Btn variant="outline" size="lg" onClick={() => setAskNext(null)}>Agora não</Btn><Btn size="lg" data-autofocus onClick={() => { setForm({ rebook: askNext }); setAskNext(null) }}><CalendarPlus className="size-5" />Agendar a próxima visita</Btn></div>}>
+          <p className="text-[15px] leading-6 text-ink-soft">Quer já deixar marcada a próxima visita de <strong className="text-ink">{askNext.client.name}</strong>? Ela abre com o mesmo serviço, valor e horário.</p>
+        </Modal>
+      )}
 
       {confirm?.kind === 'delete' && confirm.appt && (
         <ConfirmDialog danger title="Excluir este agendamento?" confirmLabel="Excluir de vez" onClose={() => setConfirm(null)}
@@ -301,9 +308,9 @@ export default function AgendaView({ api, services, clients, notify, onChanged, 
 }
 
 /* ============================================================ */
-function ApptCard({ a, showDate, selecting, checked, onToggle, onComplete, onEdit, onConfirmStatus, onReactivate, onAsk }: {
+function ApptCard({ a, showDate, selecting, checked, onToggle, onComplete, onRebook, onEdit, onConfirmStatus, onReactivate, onAsk }: {
   a: Appt; showDate: boolean; selecting: boolean; checked: boolean; onToggle: () => void
-  onComplete: () => void; onEdit: () => void; onConfirmStatus: () => void; onReactivate: () => void
+  onComplete: () => void; onRebook: () => void; onEdit: () => void; onConfirmStatus: () => void; onReactivate: () => void
   onAsk: (k: 'delete' | 'cancel' | 'noshow' | 'reopen') => void
 }) {
   const [menu, setMenu] = useState(false)
@@ -352,7 +359,8 @@ function ApptCard({ a, showDate, selecting, checked, onToggle, onComplete, onEdi
           {open && <Btn variant="success" size="sm" onClick={onComplete}><CheckCheck className="size-4" />Concluir</Btn>}
           {a.status === 'SCHEDULED' && <Btn variant="soft" size="sm" onClick={onConfirmStatus}><Check className="size-4" />Confirmar</Btn>}
           {dim && <Btn variant="soft" size="sm" onClick={onReactivate}><RotateCcw className="size-4" />Reativar</Btn>}
-          {locked && <span className="text-[13px] text-ink-mute">Valor lançado no financeiro</span>}
+          {locked && <Btn variant="soft" size="sm" onClick={onRebook}><CalendarPlus className="size-4" />Agendar de novo</Btn>}
+          {locked && <span className="hidden text-[13px] text-ink-mute sm:inline">Valor lançado no financeiro</span>}
           <div className="ml-auto flex items-center gap-1">
             {open && a.client.phone && (
               <a href={whatsappLink(a.client.phone)} target="_blank" rel="noreferrer" aria-label={`WhatsApp de ${a.client.name}`} className="flex size-9 items-center justify-center rounded-xl text-ok hover:bg-ok-soft"><MessageCircle className="size-[18px]" /></a>
@@ -406,14 +414,19 @@ function CompleteModal({ appt, onClose, onDone }: { appt: Appt; onClose: () => v
 }
 
 /* ============================================================ */
-function ApptForm({ api, services, clients, appt, defaultDate, onClose, onSaved }: { api: Api; services: Row[]; clients: Row[]; appt?: Appt; defaultDate: string; onClose: () => void; onSaved: (day?: string) => void }) {
-  const activeServices = services.filter((s) => s.isActive !== false || s.id === appt?.serviceId)
-  const [name, setName] = useState(appt?.client.name ?? '')
+function rebookDate(from: Appt, days: number) {
+  const d = addDaysKey(toDateKey(from.startsAt), days)
+  return d < todayKey() ? addDaysKey(todayKey(), days) : d
+}
+
+function ApptForm({ api, services, clients, appt, rebook, defaultDate, onClose, onSaved }: { api: Api; services: Row[]; clients: Row[]; appt?: Appt; rebook?: Appt; defaultDate: string; onClose: () => void; onSaved: (day?: string) => void }) {
+  const activeServices = services.filter((s) => s.isActive !== false || s.id === (appt ?? rebook)?.serviceId)
+  const [name, setName] = useState((appt ?? rebook)?.client.name ?? '')
   const [phone, setPhone] = useState('')
-  const [serviceId, setServiceId] = useState(appt?.serviceId ?? '')
-  const [date, setDate] = useState(appt ? toDateKey(appt.startsAt) : defaultDate)
-  const [time, setTime] = useState(appt ? toTimeKey(appt.startsAt) : '')
-  const [price, setPrice] = useState(appt ? moneyToInput(appt.agreedPriceCents) : '')
+  const [serviceId, setServiceId] = useState((appt ?? rebook)?.serviceId ?? '')
+  const [date, setDate] = useState(appt ? toDateKey(appt.startsAt) : rebook ? rebookDate(rebook, 14) : defaultDate)
+  const [time, setTime] = useState(appt ? toTimeKey(appt.startsAt) : rebook ? toTimeKey(rebook.startsAt) : '')
+  const [price, setPrice] = useState(appt ? moneyToInput(appt.agreedPriceCents) : rebook ? moneyToInput(rebook.agreedPriceCents) : '')
   const [notes, setNotes] = useState(cleanNotes(appt?.notes ?? ''))
   const [confirmed, setConfirmed] = useState(appt?.status === 'CONFIRMED')
   const [busy, setBusy] = useState(false)
@@ -456,7 +469,8 @@ function ApptForm({ api, services, clients, appt, defaultDate, onClose, onSaved 
     if (cents === null) return setError('Informe um valor válido.')
     setBusy(true)
     try {
-      const base: Row = { clientName: name.trim(), serviceId, startsAt: toISO(date, time), agreedPriceCents: cents, notes: notes.trim() || null }
+      const sameClient = rebook && name.trim().toLowerCase() === rebook.client.name.trim().toLowerCase()
+      const base: Row = { ...(sameClient ? { clientId: rebook!.client.id } : { clientName: name.trim() }), serviceId, startsAt: toISO(date, time), agreedPriceCents: cents, notes: notes.trim() || null }
       if (appt) await api(`/api/appointments/${appt.id}`, { method: 'PATCH', body: JSON.stringify({ ...base, status: confirmed ? 'CONFIRMED' : 'SCHEDULED' }) })
       else await api('/api/appointments', { method: 'POST', body: JSON.stringify({ ...base, ...(phone.trim() && !known ? { clientPhone: phone.trim() } : {}), status: confirmed ? 'CONFIRMED' : 'SCHEDULED' }) })
       onSaved(date)
@@ -468,7 +482,7 @@ function ApptForm({ api, services, clients, appt, defaultDate, onClose, onSaved 
   }
 
   return (
-    <Modal title={appt ? 'Editar agendamento' : 'Novo agendamento'} onClose={onClose}
+    <Modal title={appt ? 'Editar agendamento' : rebook ? 'Agendar de novo' : 'Novo agendamento'} subtitle={rebook && !appt ? `Próxima visita de ${rebook.client.name}` : undefined} onClose={onClose}
       footer={<Btn type="submit" form="appt-form" size="lg" className="w-full" loading={busy} disabled={!!chosen}>{appt ? 'Salvar alterações' : 'Agendar'}</Btn>}>
       <form id="appt-form" onSubmit={submit} className="space-y-4">
         <div>
@@ -490,6 +504,17 @@ function ApptForm({ api, services, clients, appt, defaultDate, onClose, onSaved 
             {activeServices.map((s) => <option key={s.id} value={s.id}>{s.name} · {formatBRL(s.priceCents)} · {s.durationMinutes} min</option>)}
           </select>
         </div>
+        {rebook && !appt && (
+          <div>
+            <p className={labelCls}>Voltar em</p>
+            <div className="flex flex-wrap gap-1.5">
+              {([['1 semana', 7], ['2 semanas', 14], ['3 semanas', 21], ['1 mês', 30]] as const).map(([label, n]) => (
+                <button key={n} type="button" onClick={() => setDate(rebookDate(rebook, n))} aria-pressed={date === rebookDate(rebook, n)}
+                  className={cn('h-9 rounded-full px-3.5 text-[13px] font-semibold ring-1 transition-colors', date === rebookDate(rebook, n) ? 'bg-ink text-white ring-ink' : 'bg-white text-ink-soft ring-line hover:ring-ink-mute')}>{label}</button>
+              ))}
+            </div>
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls} htmlFor="c-date">Data</label>
