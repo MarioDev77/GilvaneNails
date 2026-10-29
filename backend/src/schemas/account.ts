@@ -1,8 +1,10 @@
 import { z } from 'zod'
+import { scheduleSchema } from '@/lib/schedule'
 
 export const updateSettingsSchema = z.object({
   businessName: z.string().trim().max(120).optional().nullable(),
   phone: z.string().trim().max(30).optional().nullable(),
+  openingHours: scheduleSchema.optional(),
 })
 
 export const changePasswordSchema = z.object({

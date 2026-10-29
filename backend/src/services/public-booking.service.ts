@@ -9,10 +9,11 @@ import {
   MAX_PENDING_PER_CLIENT,
   MIN_LEAD_MINUTES,
   SLOT_STEP_MINUTES,
-  getBookingHours,
+  getBookingSchedule,
   getPublicOwnerId,
 } from '@/lib/public-booking'
 import { samePhone } from '@/lib/phone'
+import { hoursForDate } from '@/lib/schedule'
 import { createAppointment } from '@/services/appointment.service'
 import type { AvailabilityQuery, CreatePublicBookingInput } from '@/schemas/public-booking'
 
@@ -20,10 +21,6 @@ const ACTIVE_STATUSES = ['SCHEDULED', 'CONFIRMED'] as const
 
 function localToUtc(date: string, hhmm: string): Date {
   return fromZonedTime(`${date}T${hhmm}:00`, TIMEZONE)
-}
-
-function weekday(date: string): number {
-  return new Date(`${date}T12:00:00Z`).getUTCDay()
 }
 
 function assertDateInWindow(date: string) {
@@ -35,11 +32,16 @@ function assertDateInWindow(date: string) {
 }
 
 async function computeSlots(ownerId: string, durationMinutes: number, date: string) {
-  const hours = await getBookingHours(ownerId)
-  if (!hours.days.includes(weekday(date))) return []
+  // Modelo semanal + exceções do dia; null = fechado
+  const day = hoursForDate(await getBookingSchedule(ownerId), date)
+  if (!day) return []
 
-  const open = localToUtc(date, hours.start)
-  const close = localToUtc(date, hours.end)
+  const open = localToUtc(date, day.start)
+  const close = localToUtc(date, day.end)
+  const lunch =
+    day.breakStart && day.breakEnd
+      ? { start: localToUtc(date, day.breakStart), end: localToUtc(date, day.breakEnd) }
+      : null
   const earliest = addMinutes(new Date(), MIN_LEAD_MINUTES).getTime()
 
   const busy = await prisma.appointment.findMany({
@@ -60,6 +62,7 @@ async function computeSlots(ownerId: string, durationMinutes: number, date: stri
   ) {
     if (start.getTime() < earliest) continue
     const end = addMinutes(start, durationMinutes)
+    if (lunch && rangesOverlap(start, end, lunch.start, lunch.end)) continue
     if (busy.some((b) => rangesOverlap(start, end, b.startsAt, b.endsAt))) continue
     slots.push({ startsAt: start.toISOString(), time: formatLocal(start, 'HH:mm') })
   }

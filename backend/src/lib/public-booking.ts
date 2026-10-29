@@ -1,6 +1,6 @@
-import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { NotFoundError } from '@/lib/auth'
+import { parseSchedule, type Schedule } from '@/lib/schedule'
 
 /**
  * Configurações da agenda online (área pública).
@@ -16,18 +16,6 @@ export const MIN_LEAD_MINUTES = 120 // antecedência mínima para pedir um horá
 export const MAX_DAYS_AHEAD = 60 // até quantos dias à frente o cliente pode agendar
 export const MAX_PENDING_PER_CLIENT = 3 // solicitações pendentes por telefone
 
-const hoursSchema = z.object({
-  start: z.string().regex(/^\d{2}:\d{2}$/),
-  end: z.string().regex(/^\d{2}:\d{2}$/),
-  days: z.array(z.number().int().min(0).max(6)).min(1), // 0 = domingo ... 6 = sábado
-})
-
-export type BookingHours = z.infer<typeof hoursSchema>
-
-// Padrão: segunda a sábado, das 09:00 às 18:00.
-// Pode ser personalizado em Settings.openingHours: { "start": "08:00", "end": "17:00", "days": [1,2,3,4,5] }
-const DEFAULT_HOURS: BookingHours = { start: '09:00', end: '18:00', days: [1, 2, 3, 4, 5, 6] }
-
 export async function getPublicOwnerId(): Promise<string> {
   const email = process.env.PUBLIC_BOOKING_OWNER_EMAIL?.trim().toLowerCase()
   const owner = email
@@ -37,13 +25,12 @@ export async function getPublicOwnerId(): Promise<string> {
   return owner.id
 }
 
-export async function getBookingHours(ownerId: string): Promise<BookingHours> {
+export async function getBookingSchedule(ownerId: string): Promise<Schedule> {
   const settings = await prisma.settings.findUnique({
     where: { ownerId },
     select: { openingHours: true },
   })
-  const parsed = hoursSchema.safeParse(settings?.openingHours)
-  return parsed.success ? parsed.data : DEFAULT_HOURS
+  return parseSchedule(settings?.openingHours)
 }
 
 // ---- Limite simples de requisições (em memória, por instância) ----

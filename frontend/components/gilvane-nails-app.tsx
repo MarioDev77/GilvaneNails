@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { formatBRL, formatDateKey, greeting, toDateKey, toTimeKey, whatsappLink } from '@/lib/format'
 import { FinanceView, ReportsView } from '@/components/admin-finance'
 import AgendaView from '@/components/agenda-view'
+import ScheduleSettings from '@/components/schedule-settings'
 import RecordsView from '@/components/records-view'
 import { Btn, ConfirmDialog, Empty, Modal, Pill, APPT_STATUS, ToastHost, inputCls, labelCls, type Toast } from '@/components/ui-bits'
 
@@ -22,7 +23,7 @@ const NAV: { id: Section; label: string; hint: string; icon: React.ElementType }
   { id: 'financeiro', label: 'Financeiro', hint: 'Entradas, saídas e saldo', icon: CircleDollarSign },
   { id: 'despesas', label: 'Despesas', hint: 'Gastos do mês', icon: Wallet },
   { id: 'relatorios', label: 'Relatórios', hint: 'Resultados por período', icon: BarChart3 },
-  { id: 'configuracoes', label: 'Configurações', hint: 'Conta e link de agendamento', icon: Settings },
+  { id: 'configuracoes', label: 'Configurações', hint: 'Horários, link de agendamento e conta', icon: Settings },
 ]
 const TAB_MAIN: Section[] = ['inicio', 'agenda', 'solicitacoes', 'financeiro']
 
@@ -209,16 +210,17 @@ function Requests({ api, notify, onChanged, refreshKey }: { api: Api; notify: (t
 }
 
 /* ============================ CONFIGURAÇÕES ============================ */
-function Config({ email, notify, logout }: { email?: string; notify: (t: string) => void; logout: () => void }) {
+function Config({ api, email, notify, logout }: { api: Api; email?: string; notify: (t: string, k?: 'ok' | 'error') => void; logout: () => void }) {
   const link = typeof location !== 'undefined' ? `${location.origin}/agendar` : '/agendar'
   return (
-    <div className="max-w-xl space-y-4">
+    <div className="max-w-xl space-y-4 pb-24 md:pb-0">
       <div className="rounded-3xl border border-line bg-white p-5">
         <h2 className="font-bold">Link de agendamento para clientes</h2>
         <p className="mt-1 text-sm text-ink-mute">Envie no WhatsApp ou coloque no Instagram. As clientes escolhem o horário e o pedido chega em Solicitações.</p>
         <p className="mt-3 break-all rounded-xl bg-paper px-3.5 py-3 text-sm font-medium">{link}</p>
         <Btn variant="soft" className="mt-3" onClick={() => { navigator.clipboard?.writeText(link); notify('Link copiado.') }}><Copy className="size-4" />Copiar link</Btn>
       </div>
+      <ScheduleSettings api={api} notify={notify} />
       <div className="rounded-3xl border border-line bg-white p-5">
         <h2 className="font-bold">Conta</h2>
         <p className="mt-1 text-sm text-ink-mute">Conectada como {email}</p>
@@ -330,7 +332,7 @@ function AppContent() {
           {(section === 'servicos' || section === 'atendimentos' || section === 'despesas') && <RecordsView key={section} section={section} api={api} clients={clients} services={services} notify={notify} onChanged={changed} refreshKey={ver} />}
           {section === 'financeiro' && <FinanceView api={api} refreshKey={ver} />}
           {section === 'relatorios' && <ReportsView api={api} refreshKey={ver} />}
-          {section === 'configuracoes' && <Config email={session.user?.email} notify={notify} logout={logout} />}
+          {section === 'configuracoes' && <Config api={api} email={session.user?.email} notify={notify} logout={logout} />}
         </main>
       </div>
 
