@@ -12,6 +12,7 @@ import {
   getBookingHours,
   getPublicOwnerId,
 } from '@/lib/public-booking'
+import { samePhone } from '@/lib/phone'
 import { createAppointment } from '@/services/appointment.service'
 import type { AvailabilityQuery, CreatePublicBookingInput } from '@/schemas/public-booking'
 
@@ -65,6 +66,16 @@ async function computeSlots(ownerId: string, durationMinutes: number, date: stri
   return slots
 }
 
+/** Acha a cliente pelo telefone comparando só os números (cadastros do painel guardam com máscara). */
+async function findClientByPhone(ownerId: string, phone: string) {
+  const candidates = await prisma.client.findMany({
+    where: { ownerId, archivedAt: null, NOT: { phone: '' } },
+    orderBy: { createdAt: 'asc' },
+    take: 5000,
+  })
+  return candidates.find((c) => samePhone(c.phone, phone)) ?? null
+}
+
 export async function listPublicServices() {
   const ownerId = await getPublicOwnerId()
   return prisma.service.findMany({
@@ -110,40 +121,52 @@ export async function createPublicBooking(input: CreatePublicBookingInput) {
     throw new ConflictError('Esse horário não está mais disponível. Escolha outro horário.')
   }
 
-  // Reaproveita o cliente pelo telefone; se não existir, cria um cadastro simples.
-  let client = await prisma.client.findFirst({
-    where: { ownerId, phone: input.phone, archivedAt: null },
-  })
+  // Reaproveita a cliente pelo telefone (ignorando máscara: "(75) 99999-9999" == "75999999999").
+  let client = await findClientByPhone(ownerId, input.phone)
+
+  // Limite de pedidos pendentes é checado ANTES de cadastrar alguém (antes ficava cliente órfã no banco).
+  if (client) {
+    const pending = await prisma.appointment.count({
+      where: {
+        ownerId,
+        clientId: client.id,
+        status: 'SCHEDULED',
+        notes: { startsWith: BOOKING_REQUEST_MARKER },
+      },
+    })
+    if (pending >= MAX_PENDING_PER_CLIENT) {
+      throw new ValidationError(
+        'Você já tem solicitações aguardando confirmação. Aguarde o retorno para pedir outro horário.'
+      )
+    }
+  }
+
   if (!client) {
     client = await prisma.client.create({
       data: { ownerId, name: input.name, phone: input.phone },
     })
   }
 
-  const pending = await prisma.appointment.count({
-    where: {
-      ownerId,
-      clientId: client.id,
-      status: 'SCHEDULED',
-      notes: { startsWith: BOOKING_REQUEST_MARKER },
-    },
-  })
-  if (pending >= MAX_PENDING_PER_CLIENT) {
-    throw new ValidationError(
-      'Você já tem solicitações aguardando confirmação. Aguarde o retorno para pedir outro horário.'
-    )
-  }
-
   const notes = `${BOOKING_REQUEST_MARKER} ${input.name}${input.notes ? ` — ${input.notes}` : ''}`
 
-  // Reaproveita a criação oficial (valida serviço e confere conflito dentro de transação).
-  const appointment = await createAppointment(ownerId, {
-    clientId: client.id,
-    serviceId: service.id,
-    startsAt: startsAt.toISOString(),
-    notes,
-    status: 'SCHEDULED',
-  })
+  // Reaproveita a criação oficial (valida serviço e confere conflito dentro de transação travada).
+  let appointment
+  try {
+    appointment = await createAppointment(ownerId, {
+      clientId: client.id,
+      serviceId: service.id,
+      startsAt: startsAt.toISOString(),
+      notes,
+      status: 'SCHEDULED',
+    })
+  } catch (e) {
+    // A mensagem de conflito do painel cita o nome de quem ocupa o horário.
+    // Na rota pública isso não pode vazar: dados de outra cliente.
+    if (e instanceof ConflictError) {
+      throw new ConflictError('Esse horário não está mais disponível. Escolha outro horário.')
+    }
+    throw e
+  }
 
   // Resposta mínima: nada de dados de clientes na rota pública.
   return {

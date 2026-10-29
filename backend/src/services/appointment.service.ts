@@ -12,6 +12,17 @@ import { AppointmentStatus, PaymentMethod } from '@prisma/client'
 const ACTIVE_STATUSES: AppointmentStatus[] = ['SCHEDULED', 'CONFIRMED']
 
 type Db = Pick<typeof prisma, 'appointment'>
+type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+
+/**
+ * Serializa as gravações de agenda da mesma dona: duas pessoas pedindo o mesmo horário ao mesmo
+ * tempo (site público + painel) passam uma de cada vez. Sem isso, a checagem de conflito e o
+ * insert eram etapas separadas e os dois pedidos podiam passar, gerando horário duplicado.
+ * Trava de transação do Postgres: não cria tabela nem altera o banco, solta sozinha no fim.
+ */
+async function lockAgenda(tx: Tx, ownerId: string) {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${'agenda:' + ownerId}))`
+}
 
 /** Garante que o intervalo está livre. Só conta agendamentos ativos (agendado/confirmado). */
 async function assertNoConflict(
@@ -90,6 +101,7 @@ export async function createAppointment(ownerId: string, input: CreateAppointmen
   }
 
   return prisma.$transaction(async (tx) => {
+    await lockAgenda(tx, ownerId)
     await assertNoConflict(tx, ownerId, startsAt, endsAt)
 
     return tx.appointment.create({
@@ -232,6 +244,7 @@ export async function updateAppointment(
   }
 
   return prisma.$transaction(async (tx) => {
+    await lockAgenda(tx, ownerId)
     const nextStatus = input.status ?? existing.status
     if (ACTIVE_STATUSES.includes(nextStatus)) {
       await assertNoConflict(tx, ownerId, startsAt, endsAt, id)
@@ -281,6 +294,7 @@ export async function changeAppointmentStatus(
   const reactivating = ACTIVE_STATUSES.includes(status) && !ACTIVE_STATUSES.includes(existing.status)
   if (reactivating) {
     return prisma.$transaction(async (tx) => {
+      await lockAgenda(tx, ownerId)
       await assertNoConflict(tx, ownerId, existing.startsAt, existing.endsAt, id)
       return tx.appointment.update({ where: { id }, data: { status }, include })
     })

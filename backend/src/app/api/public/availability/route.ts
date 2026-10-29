@@ -11,7 +11,10 @@ export async function GET(req: NextRequest) {
       return errorResponse('RATE_LIMITED', 'Muitas consultas. Aguarde um instante.', 429)
     }
     const query = availabilityQuerySchema.parse(Object.fromEntries(req.nextUrl.searchParams))
-    return success(await getAvailability(query))
+    const res = success(await getAvailability(query))
+    // Horários livres mudam a cada pedido: nunca guardar em cache (celular/CDN)
+    res.headers.set('Cache-Control', 'no-store')
+    return res
   } catch (error) {
     return handleApiError(error)
   }

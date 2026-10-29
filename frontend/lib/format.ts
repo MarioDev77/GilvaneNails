@@ -37,7 +37,8 @@ export const todayKey = () => toDateKey(new Date())
 /** HH:mm na Bahia */
 export function toTimeKey(date: Date | string) {
   const d = typeof date === 'string' ? new Date(date) : date
-  return parts(d, { hour: '2-digit', minute: '2-digit', hour12: false })
+  // hourCycle h23 evita "24:00" à meia-noite em alguns navegadores
+  return parts(d, { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
 }
 
 /** "2026-10-15" + "10:00" → ISO com fuso da Bahia (UTC-3, sem horário de verão) */
@@ -89,14 +90,14 @@ export function formatDate(iso: string) {
 }
 
 export function greeting() {
-  const h = Number(parts(new Date(), { hour: '2-digit', hour12: false }))
+  const h = Number(parts(new Date(), { hour: '2-digit', hourCycle: 'h23' }))
   return h < 12 ? 'Bom dia' : h < 18 ? 'Boa tarde' : 'Boa noite'
 }
 
-export function whatsappLink(phone: string) {
+export function whatsappLink(phone: string, text?: string) {
   const digits = phone.replace(/\D/g, '')
   const full = digits.length <= 11 ? `55${digits}` : digits
-  return `https://wa.me/${full}`
+  return `https://wa.me/${full}${text ? `?text=${encodeURIComponent(text)}` : ''}`
 }
 
 export const STATUS_LABEL: Record<string, string> = {

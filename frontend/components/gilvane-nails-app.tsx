@@ -153,6 +153,7 @@ function Requests({ api, notify, onChanged, refreshKey }: { api: Api; notify: (t
   const [rows, setRows] = useState<Row[] | null>(null)
   const [error, setError] = useState('')
   const [refuse, setRefuse] = useState<Row | null>(null)
+  const [tell, setTell] = useState<Row | null>(null)
   const load = useCallback(() => {
     api('/api/booking-requests').then((r) => setRows(Array.isArray(r) ? r : r?.items ?? [])).catch((e) => { setError(e.message); setRows([]) })
   }, [api])
@@ -162,6 +163,7 @@ function Requests({ api, notify, onChanged, refreshKey }: { api: Api; notify: (t
     try {
       await api(`/api/appointments/${r.id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) })
       notify(status === 'CONFIRMED' ? 'Solicitação confirmada.' : 'Solicitação recusada. O horário ficou livre.')
+      if (status === 'CONFIRMED' && r.client?.phone) setTell(r)
       load(); onChanged()
     } catch (e: any) { notify(e.message || 'Não foi possível atualizar.', 'error') }
   }
@@ -191,6 +193,16 @@ function Requests({ api, notify, onChanged, refreshKey }: { api: Api; notify: (t
           </article>
         )
       })}
+      {tell && (() => {
+        const first = String(tell.client?.name || '').split(' ')[0]
+        const msg = `Oi, ${first}! Seu horário de ${tell.service?.name} está confirmado para ${formatDateKey(toDateKey(tell.startsAt))} às ${toTimeKey(tell.startsAt)}. Te espero!`
+        return (
+          <Modal title="Horário confirmado" subtitle={`${tell.client?.name} · ${formatDateKey(toDateKey(tell.startsAt))} às ${toTimeKey(tell.startsAt)}`} onClose={() => setTell(null)}
+            footer={<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Btn variant="outline" size="lg" onClick={() => setTell(null)}>Agora não</Btn><a href={whatsappLink(tell.client.phone, msg)} target="_blank" rel="noreferrer" onClick={() => setTell(null)} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-ok px-5 text-[15px] font-semibold text-white hover:brightness-95"><MessageCircle className="size-5" />Avisar no WhatsApp</a></div>}>
+            <p className="text-[15px] leading-6 text-ink-soft">Quer avisar <strong className="text-ink">{tell.client?.name}</strong> que o horário dela foi confirmado? A mensagem já vai pronta no WhatsApp.</p>
+          </Modal>
+        )
+      })()}
       {refuse && <ConfirmDialog danger title="Recusar este pedido?" confirmLabel="Recusar" onClose={() => setRefuse(null)} text="O horário volta a ficar livre para outras clientes." onConfirm={async () => { await decide(refuse, 'CANCELLED'); setRefuse(null) }} />}
     </div>
   )
@@ -270,7 +282,8 @@ function AppContent() {
   useEffect(() => { refs() }, [refs, ver])
 
   const changed = useCallback(() => setVer((v) => v + 1), [])
-  const go = (s: Section) => { setSection(s); setMore(false); window.scrollTo({ top: 0 }) }
+  const go = (s: Section) => { setSection(s); setMore(false) }
+  useEffect(() => { window.scrollTo(0, 0) }, [section])
   const newAppt = () => { setSection('agenda'); setNewSignal((n) => n + 1) }
 
   if (status === 'loading') return <div className="grid min-h-dvh place-items-center bg-paper text-ink-mute">Carregando…</div>

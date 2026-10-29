@@ -62,33 +62,90 @@ export const APPT_STATUS: Record<string, { label: string; tone: keyof typeof TON
   PAID: { label: 'Paga', tone: 'ok' },
 }
 
+/* ---------- trava de rolagem da página (com contador) ----------
+   Vários modais podem abrir/fechar em sequência. Com contador, a página só destrava quando o
+   ÚLTIMO fecha — antes, cada modal guardava e restaurava o "overflow" sozinho e, na ordem
+   errada, deixava o body travado para sempre (a página parava de rolar no celular).
+   Usa position:fixed porque `overflow:hidden` no body é ignorado pelo Safari do iPhone. */
+let lockCount = 0
+let lockedY = 0
+function lockPageScroll() {
+  if (lockCount++ > 0) return
+  lockedY = window.scrollY
+  const b = document.body
+  const gap = window.innerWidth - document.documentElement.clientWidth // barra de rolagem (desktop)
+  b.style.position = 'fixed'
+  b.style.top = `-${lockedY}px`
+  b.style.left = '0'
+  b.style.right = '0'
+  b.style.width = '100%'
+  if (gap > 0) b.style.paddingRight = `${gap}px`
+}
+function unlockPageScroll() {
+  if (lockCount === 0) return
+  if (--lockCount > 0) return
+  const b = document.body
+  b.style.position = ''
+  b.style.top = ''
+  b.style.left = ''
+  b.style.right = ''
+  b.style.width = ''
+  b.style.paddingRight = ''
+  b.style.overflow = ''
+  window.scrollTo(0, lockedY)
+}
+
 /* ---------- janela (vira folha no celular) ---------- */
 export function Modal({ title, subtitle, onClose, children, footer }: { title: string; subtitle?: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode }) {
   const titleId = useId()
   const ref = useRef<HTMLDivElement>(null)
+  // onClose geralmente é uma função nova a cada render do pai. Guardar numa ref evita
+  // refazer o efeito (e roubar o foco do campo que a pessoa está digitando).
+  const closeRef = useRef(onClose)
+  useEffect(() => { closeRef.current = onClose })
+
+  // Área realmente visível (quando o teclado do celular abre, a folha encolhe junto)
+  const [vv, setVv] = useState<{ h: number; top: number } | null>(null)
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    const v = window.visualViewport
+    if (!v) return
+    const update = () => setVv({ h: v.height, top: v.offsetTop })
+    update()
+    v.addEventListener('resize', update)
+    v.addEventListener('scroll', update)
+    return () => { v.removeEventListener('resize', update); v.removeEventListener('scroll', update) }
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && closeRef.current()
     document.addEventListener('keydown', onKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    ref.current?.querySelector<HTMLElement>('input,select,textarea,button[data-autofocus]')?.focus()
+    lockPageScroll()
+    // Só abre o teclado sozinho no computador; no celular o teclado cobriria metade do formulário.
+    const root = ref.current
+    const auto = root?.querySelector<HTMLElement>('[data-autofocus]')
+    const touch = window.matchMedia('(pointer: coarse)').matches
+    if (auto) auto.focus({ preventScroll: true })
+    else if (!touch) root?.querySelector<HTMLElement>('input,select,textarea')?.focus({ preventScroll: true })
+    else root?.focus({ preventScroll: true })
     return () => {
       document.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prev
+      unlockPageScroll()
     }
-  }, [onClose])
+  }, [])
+
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 p-0 sm:items-center sm:p-6" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className="sheet-in flex max-h-[94dvh] w-full max-w-lg flex-col rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
-        <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+    <div className="fixed inset-x-0 top-0 z-50 flex items-end justify-center bg-ink/40 p-0 sm:items-center sm:p-6" style={vv ? { height: vv.h, top: vv.top } : { bottom: 0 }} onMouseDown={(e) => e.target === e.currentTarget && closeRef.current()}>
+      <div ref={ref} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby={titleId} style={vv ? { maxHeight: `${Math.floor(vv.h * 0.96)}px` } : undefined}
+        className="sheet-in flex max-h-[94dvh] min-h-0 w-full max-w-lg flex-col rounded-t-3xl bg-white shadow-2xl outline-none sm:rounded-3xl">
+        <div className="flex shrink-0 items-start justify-between gap-4 border-b border-line px-5 py-4">
           <div className="min-w-0">
             <h2 id={titleId} className="text-lg font-bold">{title}</h2>
             {subtitle && <p className="mt-0.5 text-sm text-ink-mute">{subtitle}</p>}
           </div>
-          <button onClick={onClose} aria-label="Fechar" className="-mr-1 rounded-lg p-2 text-ink-mute hover:bg-paper hover:text-ink"><X className="size-5" /></button>
+          <button onClick={() => closeRef.current()} aria-label="Fechar" className="-mr-1 rounded-lg p-2 text-ink-mute hover:bg-paper hover:text-ink"><X className="size-5" /></button>
         </div>
-        <div className="overflow-y-auto px-5 py-5">{children}</div>
-        {footer && <div className="border-t border-line bg-paper/60 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:rounded-b-3xl">{footer}</div>}
+        <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-5 py-5 [-webkit-overflow-scrolling:touch]">{children}</div>
+        {footer && <div className="shrink-0 border-t border-line bg-paper/60 px-5 py-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:rounded-b-3xl">{footer}</div>}
       </div>
     </div>
   )
@@ -119,7 +176,7 @@ export function ConfirmDialog({ title, text, confirmLabel, danger, onClose, onCo
 export type Toast = { id: number; kind: 'ok' | 'error'; text: string }
 export function ToastHost({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: number) => void }) {
   return (
-    <div className="pointer-events-none fixed inset-x-0 bottom-20 z-[60] flex flex-col items-center gap-2 px-4 md:bottom-6" aria-live="polite">
+    <div className="pointer-events-none fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom))] z-[60] flex flex-col items-center gap-2 px-4 md:bottom-6" aria-live="polite">
       {toasts.map((t) => (
         <div key={t.id} role={t.kind === 'error' ? 'alert' : 'status'} className={cn('sheet-in pointer-events-auto flex w-full max-w-md items-start gap-3 rounded-2xl px-4 py-3 text-sm font-medium shadow-lg', t.kind === 'ok' ? 'bg-ink text-white' : 'bg-bad text-white')}>
           {t.kind === 'ok' ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <XCircle className="mt-0.5 size-4 shrink-0" />}

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FormEvent } from 'react'
 import { CalendarDays, Check, Clock, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -20,13 +20,29 @@ const maskPhone = (v: string) => {
   return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`
 }
 
-const toInputDate = (d: Date) =>
-  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+const TZ = 'America/Bahia'
+const bahiaToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date())
+const addDaysKey = (key: string, n: number) => {
+  const [y, m, d] = key.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d + n)).toISOString().slice(0, 10)
+}
+const niceWhen = (iso: string) => {
+  const s = new Date(iso).toLocaleString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: TZ })
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
 
 async function request(path: string, options: RequestInit = {}) {
-  const res = await fetch(path, { ...options, headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } })
+  let res: Response
+  try {
+    res = await fetch(path, { ...options, cache: 'no-store', headers: { 'Content-Type': 'application/json', ...(options.headers || {}) } })
+  } catch {
+    throw new Error('Sem conexão com a internet. Confira o sinal e tente de novo.')
+  }
   const body = await res.json().catch(() => null)
-  if (!res.ok) throw new Error(body?.error?.message || 'Não foi possível concluir. Tente novamente.')
+  if (!res.ok) {
+    const details = Array.isArray(body?.error?.details) ? body.error.details.map((x: any) => x.message).filter(Boolean).join(' • ') : ''
+    throw new Error(details || body?.error?.message || 'Não foi possível concluir. Tente novamente.')
+  }
   return body?.data
 }
 
@@ -46,14 +62,16 @@ export default function PublicBooking() {
   const [notes, setNotes] = useState('')
   const [website, setWebsite] = useState('') // campo isca anti-robô
   const [busy, setBusy] = useState(false)
+  const [servicesError, setServicesError] = useState('')
+  const [slotsError, setSlotsError] = useState('')
   const [error, setError] = useState('')
   const [done, setDone] = useState<Done | null>(null)
+  const dataRef = useRef<HTMLElement>(null)
+  const errorRef = useRef<HTMLParagraphElement>(null)
 
   const { minDate, maxDate } = useMemo(() => {
-    const now = new Date()
-    const max = new Date()
-    max.setDate(max.getDate() + 60)
-    return { minDate: toInputDate(now), maxDate: toInputDate(max) }
+    const today = bahiaToday()
+    return { minDate: today, maxDate: addDaysKey(today, 60) }
   }, [])
 
   const service = services.find((s) => s.id === serviceId)
@@ -61,7 +79,7 @@ export default function PublicBooking() {
   useEffect(() => {
     request('/api/public/services')
       .then((data) => setServices(Array.isArray(data) ? data : []))
-      .catch((e) => setError(e.message))
+      .catch((e) => setServicesError(e.message))
       .finally(() => setLoadingServices(false))
   }, [])
 
@@ -71,10 +89,10 @@ export default function PublicBooking() {
     if (!serviceId || !date) return
     let cancelled = false
     setLoadingSlots(true)
-    setError('')
+    setSlotsError('')
     request(`/api/public/availability?date=${date}&serviceId=${serviceId}`)
       .then((data) => !cancelled && setSlots(data?.slots || []))
-      .catch((e) => !cancelled && setError(e.message))
+      .catch((e) => !cancelled && setSlotsError(e.message))
       .finally(() => !cancelled && setLoadingSlots(false))
     return () => {
       cancelled = true
@@ -101,6 +119,7 @@ export default function PublicBooking() {
       setDone({ startsAt: data?.startsAt || slot, service: { name: data?.service?.name || service?.name || '' } })
     } catch (err: any) {
       setError(err.message)
+      setTimeout(() => errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60)
       // Se o horário foi ocupado por outra pessoa, recarrega a lista de horários.
       if (date && serviceId) {
         request(`/api/public/availability?date=${date}&serviceId=${serviceId}`)
@@ -151,18 +170,13 @@ export default function PublicBooking() {
           <p className="mt-1 text-sm text-[#9d858d]">Escolha o serviço, o dia e o horário que prefere</p>
         </header>
 
-        {error && (
-          <p role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-            {error}
-          </p>
-        )}
-
         <form onSubmit={submit} className="space-y-5">
           <section className="rounded-2xl border border-[#f2e4e8] bg-white p-5">
             <h2 className="mb-3 flex items-center gap-2 font-semibold"><Sparkles size={17} className="text-[#d85f7b]" /> 1. Serviço</h2>
+            {servicesError && <p role="alert" className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{servicesError}</p>}
             {loadingServices ? (
               <p className="text-sm text-[#9d858d]">Carregando serviços…</p>
-            ) : services.length === 0 ? (
+            ) : services.length === 0 && !servicesError ? (
               <p className="text-sm text-[#9d858d]">Nenhum serviço disponível no momento.</p>
             ) : (
               <div className="grid gap-2">
@@ -202,9 +216,10 @@ export default function PublicBooking() {
             {!serviceId && <p className="mt-2 text-xs text-[#9d858d]">Escolha um serviço primeiro.</p>}
             {serviceId && date && (
               <div className="mt-4">
+                {slotsError && <p role="alert" className="mb-3 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{slotsError}</p>}
                 {loadingSlots ? (
                   <p className="text-sm text-[#9d858d]">Buscando horários…</p>
-                ) : slots.length === 0 ? (
+                ) : slots.length === 0 && !slotsError ? (
                   <p className="text-sm text-[#9d858d]">Sem horários livres nesse dia. Tente outra data.</p>
                 ) : (
                   <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
@@ -212,7 +227,7 @@ export default function PublicBooking() {
                       <button
                         type="button"
                         key={s.startsAt}
-                        onClick={() => setSlot(s.startsAt)}
+                        onClick={() => { setSlot(s.startsAt); setError(''); setTimeout(() => dataRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 120) }}
                         className={`rounded-xl border py-2.5 text-sm font-medium transition ${
                           slot === s.startsAt
                             ? 'border-[#d85f7b] bg-[#d85f7b] text-white'
@@ -228,7 +243,7 @@ export default function PublicBooking() {
             )}
           </section>
 
-          <section className="rounded-2xl border border-[#f2e4e8] bg-white p-5">
+          <section ref={dataRef} className="scroll-mt-4 rounded-2xl border border-[#f2e4e8] bg-white p-5">
             <h2 className="mb-3 font-semibold">3. Seus dados</h2>
             <label className="mb-3 block text-sm">
               <span className="mb-1.5 block font-medium">Nome *</span>
@@ -251,6 +266,13 @@ export default function PublicBooking() {
             </div>
           </section>
 
+          {service && slot && (
+            <div className="rounded-2xl border border-[#f2dfe5] bg-[#fff5f7] p-4 text-sm">
+              <p className="font-semibold">{service.name} · {money(service.priceCents)}</p>
+              <p className="mt-0.5 text-[#806b72]">{niceWhen(slot)} · {service.durationMinutes} min</p>
+            </div>
+          )}
+          {error && <p ref={errorRef} role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{error}</p>}
           <Button
             type="submit"
             disabled={busy || !serviceId || !slot}

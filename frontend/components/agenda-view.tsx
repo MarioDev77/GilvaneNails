@@ -255,7 +255,7 @@ export default function AgendaView({ api, services, clients, notify, onChanged, 
 
       {/* barra de seleção */}
       {selecting && (
-        <div className="fixed inset-x-0 bottom-[4.5rem] z-40 flex justify-center px-4 md:bottom-6 md:left-64">
+        <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 flex justify-center px-4 md:bottom-6 md:left-64">
           <div className="flex w-full max-w-md items-center justify-between gap-3 rounded-2xl bg-ink px-4 py-3 text-white shadow-xl">
             <span className="text-sm font-semibold">{selected.size} selecionado(s)</span>
             <Btn variant="danger" size="sm" disabled={selected.size === 0} onClick={() => setConfirm({ kind: 'bulk' })}><Trash2 className="size-4" />Excluir</Btn>
@@ -265,7 +265,7 @@ export default function AgendaView({ api, services, clients, notify, onChanged, 
 
       {/* botão flutuante (celular) */}
       {!selecting && (
-        <button onClick={() => setForm({})} aria-label="Novo agendamento" className="fixed bottom-20 right-4 z-30 flex size-14 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/30 hover:bg-brand-strong sm:hidden">
+        <button onClick={() => setForm({})} aria-label="Novo agendamento" className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 z-30 flex size-14 items-center justify-center rounded-full bg-brand text-white shadow-lg shadow-brand/30 hover:bg-brand-strong sm:hidden">
           <Plus className="size-6" />
         </button>
       )}
@@ -450,6 +450,7 @@ function ApptForm({ api, services, clients, appt, rebook, defaultDate, onClose, 
   const busyRanges = useMemo(() => (dayAppts ?? []).map((x) => ({ s: minutes(toTimeKey(x.startsAt)), e: minutes(toTimeKey(x.endsAt)) || 1440, who: x.client.name })).sort((a, b) => a.s - b.s), [dayAppts])
   const clash = (start: number) => busyRanges.find((r) => start < r.e && start + duration > r.s)
   const chosen = time ? clash(minutes(time)) : undefined
+  const inPast = !!time && !appt && new Date(toISO(date, time)).getTime() < Date.now()
   const nowMin = date === todayKey() ? minutes(toTimeKey(new Date())) : -1
   const freeTimes = useMemo(() => { const out: string[] = []; for (let m = 8 * 60; m <= 19 * 60; m += 30) if (m > nowMin && !clash(m)) out.push(hhmm(m)); return out }, [busyRanges, duration, nowMin]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -470,7 +471,10 @@ function ApptForm({ api, services, clients, appt, rebook, defaultDate, onClose, 
     setBusy(true)
     try {
       const sameClient = rebook && name.trim().toLowerCase() === rebook.client.name.trim().toLowerCase()
-      const base: Row = { ...(sameClient ? { clientId: rebook!.client.id } : { clientName: name.trim() }), serviceId, startsAt: toISO(date, time), agreedPriceCents: cents, notes: notes.trim() || null }
+      // Pedido feito pelo link público: mantém a marca nas observações, senão ele sumiria de "Solicitações"
+      const wasOnline = (appt?.notes ?? '').startsWith(ONLINE)
+      const finalNotes = wasOnline ? `${ONLINE} ${notes.trim()}`.trim() : notes.trim() || null
+      const base: Row = { ...(sameClient ? { clientId: rebook!.client.id } : { clientName: name.trim() }), serviceId, startsAt: toISO(date, time), agreedPriceCents: cents, notes: finalNotes }
       if (appt) await api(`/api/appointments/${appt.id}`, { method: 'PATCH', body: JSON.stringify({ ...base, status: confirmed ? 'CONFIRMED' : 'SCHEDULED' }) })
       else await api('/api/appointments', { method: 'POST', body: JSON.stringify({ ...base, ...(phone.trim() && !known ? { clientPhone: phone.trim() } : {}), status: confirmed ? 'CONFIRMED' : 'SCHEDULED' }) })
       onSaved(date)
@@ -533,6 +537,7 @@ function ApptForm({ api, services, clients, appt, rebook, defaultDate, onClose, 
           ) : (
             <p className="text-sm text-ink-soft">{dayAppts === null ? 'Conferindo a agenda do dia…' : time ? `Horário livre em ${formatDateKey(date)}.` : 'Toque em um horário livre ou digite acima.'}</p>
           )}
+          {inPast && !chosen && <p role="status" className="mt-2 text-sm font-medium text-warn">Atenção: esse horário já passou. Confira a data e a hora.</p>}
           {dayAppts !== null && freeTimes.length > 0 && (
             <div className="mt-2.5 flex flex-wrap gap-1.5">
               {freeTimes.map((t) => (
