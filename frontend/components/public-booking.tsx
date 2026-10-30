@@ -163,10 +163,8 @@ export default function PublicBooking() {
     <main className="min-h-screen bg-[#fff7f8] p-4 text-[#39252b] sm:p-8">
       <div className="mx-auto w-full max-w-xl">
         <header className="mb-6 text-center">
-          <div className="mx-auto mb-3 flex size-14 items-center justify-center rounded-2xl bg-[#fce8ee] text-[#c75d79]">
-            <Sparkles size={26} />
-          </div>
-          <h1 className="text-2xl font-bold sm:text-3xl">Gilvane Nails</h1>
+          <img src="/logo-circle.png" alt="" width={144} height={144} className="mx-auto mb-2 size-32 sm:size-36" />
+          <h1 className="sr-only">Gilvane Nails</h1>
           <p className="mt-1 text-sm text-[#9d858d]">Escolha o serviço, o dia e o horário que prefere</p>
         </header>
 

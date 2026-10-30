@@ -7,10 +7,20 @@ const figtree = Figtree({ subsets: ['latin'], variable: '--font-figtree', displa
 
 export const metadata: Metadata = {
   title: 'Gilvane Nails | Gestão para manicure',
+  applicationName: 'Gilvane Nails',
   description: 'Organize sua agenda, clientes e financeiro com delicadeza.',
   generator: 'v0.app',
   manifest: '/manifest.webmanifest',
-  icons: { icon: '/icon.svg', apple: '/apple-icon.png' },
+  icons: {
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/favicon-32.png', sizes: '32x32', type: 'image/png' },
+      { url: '/favicon-16.png', sizes: '16x16', type: 'image/png' },
+      { url: '/icon-192.png', sizes: '192x192', type: 'image/png' },
+    ],
+    apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
+  },
+  appleWebApp: { capable: true, title: 'Gilvane Nails', statusBarStyle: 'default' },
 }
 
 export const viewport: Viewport = {

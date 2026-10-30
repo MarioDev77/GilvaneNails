@@ -8,6 +8,7 @@ import { formatBRL, formatDateKey, greeting, toDateKey, toTimeKey, whatsappLink 
 import { FinanceView, ReportsView } from '@/components/admin-finance'
 import AgendaView from '@/components/agenda-view'
 import ScheduleSettings from '@/components/schedule-settings'
+import Splash from '@/components/splash'
 import RecordsView from '@/components/records-view'
 import { Btn, ConfirmDialog, Empty, Modal, Pill, APPT_STATUS, ToastHost, forceUnlockPageScroll, inputCls, labelCls, type Toast } from '@/components/ui-bits'
 
@@ -60,8 +61,8 @@ function Login() {
   return (
     <main className="flex min-h-dvh items-center justify-center bg-paper p-4">
       <form onSubmit={submit} className="w-full max-w-sm rounded-3xl border border-line bg-white p-7 shadow-[0_20px_60px_-20px_rgba(174,63,91,0.25)]">
-        <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-brand text-white"><Sparkles className="size-7" /></div>
-        <h1 className="text-center text-2xl font-extrabold tracking-tight">Gilvane Nails</h1>
+        <img src="/logo-circle.png" alt="" width={144} height={144} className="mx-auto mb-4 size-36" />
+        <h1 className="sr-only">Gilvane Nails</h1>
         <p className="mb-6 mt-1.5 text-center text-sm text-ink-mute">Entre para ver a agenda e o caixa</p>
         {error && <p role="alert" className="mb-4 rounded-xl bg-bad-soft px-3.5 py-3 text-sm font-medium text-bad">{error}</p>}
         <label htmlFor="email" className={labelCls}>E-mail</label>
@@ -233,7 +234,7 @@ function Config({ api, email, notify, logout }: { api: Api; email?: string; noti
 /* ============================ APP ============================ */
 type Api = (path: string, options?: RequestInit) => Promise<any>
 
-function AppContent() {
+function AppContent({ onReady }: { onReady: () => void }) {
   const [session, setSession] = useState<any>(null)
   const [status, setStatus] = useState<'loading' | 'ready'>('loading')
   const [section, setSection] = useState<Section>('inicio')
@@ -292,7 +293,9 @@ function AppContent() {
   }, [section])
   const newAppt = () => { setSection('agenda'); setNewSignal((n) => n + 1) }
 
-  if (status === 'loading') return <div className="grid min-h-dvh place-items-center bg-paper text-ink-mute">Carregando…</div>
+  useEffect(() => { if (status === 'ready') onReady() }, [status, onReady])
+
+  if (status === 'loading') return <div className="min-h-dvh bg-paper" />
   if (!session) return <Login />
 
   const current = NAV.find((n) => n.id === section)!
@@ -311,10 +314,9 @@ function AppContent() {
 
   return (
     <div className="min-h-dvh bg-paper">
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col border-r border-line bg-white p-4 md:flex">
-        <div className="mb-7 flex items-center gap-3 px-1.5 pt-1">
-          <div className="flex size-10 items-center justify-center rounded-xl bg-brand text-white"><Sparkles className="size-5" /></div>
-          <div><p className="font-extrabold leading-5">Gilvane Nails</p><p className="text-xs text-ink-mute">Agenda e caixa</p></div>
+      <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 flex-col overflow-y-auto border-r border-line bg-white p-4 md:flex">
+        <div className="mb-6 flex justify-center px-1.5 pt-1">
+          <img src="/logo-circle.png" alt="Gilvane Nails" width={144} height={144} className="size-32" />
         </div>
         <nav className="space-y-0.5">{NAV.map(navBtn)}</nav>
         <div className="mt-auto border-t border-line pt-3">
@@ -372,5 +374,12 @@ function AppContent() {
 }
 
 export default function GilvaneNailsApp() {
-  return <AppContent />
+  const [ready, setReady] = useState(false)
+  const onReady = useCallback(() => setReady(true), [])
+  return (
+    <>
+      <AppContent onReady={onReady} />
+      <Splash ready={ready} />
+    </>
+  )
 }
