@@ -83,7 +83,7 @@ export default function RecordsView({ section, api, clients, services, notify, o
   }
 
   return (
-    <div className="pb-24 md:pb-0">
+    <div>
       <div className="mb-5 flex flex-col gap-3 sm:flex-row">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-ink-mute" />

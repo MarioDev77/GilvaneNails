@@ -9,7 +9,7 @@ import { FinanceView, ReportsView } from '@/components/admin-finance'
 import AgendaView from '@/components/agenda-view'
 import ScheduleSettings from '@/components/schedule-settings'
 import RecordsView from '@/components/records-view'
-import { Btn, ConfirmDialog, Empty, Modal, Pill, APPT_STATUS, ToastHost, inputCls, labelCls, type Toast } from '@/components/ui-bits'
+import { Btn, ConfirmDialog, Empty, Modal, Pill, APPT_STATUS, ToastHost, forceUnlockPageScroll, inputCls, labelCls, type Toast } from '@/components/ui-bits'
 
 type Row = Record<string, any>
 type Section = 'inicio' | 'agenda' | 'solicitacoes' | 'atendimentos' | 'servicos' | 'financeiro' | 'despesas' | 'relatorios' | 'configuracoes'
@@ -95,7 +95,7 @@ function Dashboard({ api, name, pending, go, newAppt, refreshKey }: { api: Api; 
     { label: 'Saldo em caixa', value: formatBRL(data?.totalBalanceCents) },
   ]
   return (
-    <div className="space-y-6 pb-24 md:pb-0">
+    <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <p className="text-sm text-ink-mute">{greeting()}, {name.split(' ')[0]}</p>
@@ -173,7 +173,7 @@ function Requests({ api, notify, onChanged, refreshKey }: { api: Api; notify: (t
   if (error) return <p className="rounded-xl bg-bad-soft px-4 py-3 text-sm font-medium text-bad">{error}</p>
   if (rows.length === 0) return <Empty icon={Inbox} title="Nenhuma solicitação pendente" text="Quando uma cliente pedir horário pelo link de agendamento, o pedido aparece aqui." />
   return (
-    <div className="space-y-3 pb-24 md:pb-0">
+    <div className="space-y-3">
       {rows.map((r) => {
         const info = String(r.notes || '').replace('[Solicitação online]', '').trim()
         return (
@@ -213,7 +213,7 @@ function Requests({ api, notify, onChanged, refreshKey }: { api: Api; notify: (t
 function Config({ api, email, notify, logout }: { api: Api; email?: string; notify: (t: string, k?: 'ok' | 'error') => void; logout: () => void }) {
   const link = typeof location !== 'undefined' ? `${location.origin}/agendar` : '/agendar'
   return (
-    <div className="max-w-xl space-y-4 pb-24 md:pb-0">
+    <div className="max-w-xl space-y-4">
       <div className="rounded-3xl border border-line bg-white p-5">
         <h2 className="font-bold">Link de agendamento para clientes</h2>
         <p className="mt-1 text-sm text-ink-mute">Envie no WhatsApp ou coloque no Instagram. As clientes escolhem o horário e o pedido chega em Solicitações.</p>
@@ -285,7 +285,11 @@ function AppContent() {
 
   const changed = useCallback(() => setVer((v) => v + 1), [])
   const go = (s: Section) => { setSection(s); setMore(false) }
-  useEffect(() => { window.scrollTo(0, 0) }, [section])
+  useEffect(() => {
+    // Rede de segurança: se algum aviso/janela deixar a página travada, destrava ao trocar de tela.
+    if (!document.querySelector('[role="dialog"]')) forceUnlockPageScroll()
+    window.scrollTo(0, 0)
+  }, [section])
   const newAppt = () => { setSection('agenda'); setNewSignal((n) => n + 1) }
 
   if (status === 'loading') return <div className="grid min-h-dvh place-items-center bg-paper text-ink-mute">Carregando…</div>
@@ -320,7 +324,7 @@ function AppContent() {
       </aside>
 
       <div className="md:pl-64">
-        <main className="mx-auto max-w-4xl px-4 pb-8 pt-[max(1.25rem,env(safe-area-inset-top))] sm:px-6 md:pt-8">
+        <main className="mx-auto max-w-4xl px-4 pb-[calc(7rem+env(safe-area-inset-bottom))] pt-[max(1.25rem,env(safe-area-inset-top))] sm:px-6 md:pb-10 md:pt-8">
           <header className="mb-6">
             <h1 className="text-2xl font-extrabold tracking-tight sm:text-3xl">{current.label}</h1>
             <p className="mt-1 text-sm text-ink-mute">{current.hint}</p>

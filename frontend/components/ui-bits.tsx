@@ -95,6 +95,20 @@ function unlockPageScroll() {
   window.scrollTo(0, lockedY)
 }
 
+/* Destrava à força (usado como rede de segurança quando nenhuma janela está aberta). */
+export function forceUnlockPageScroll() {
+  lockCount = 0
+  const b = document.body
+  if (b.style.position !== 'fixed' && !b.style.top) return
+  b.style.position = ''
+  b.style.top = ''
+  b.style.left = ''
+  b.style.right = ''
+  b.style.width = ''
+  b.style.paddingRight = ''
+  b.style.overflow = ''
+}
+
 /* ---------- janela (vira folha no celular) ---------- */
 export function Modal({ title, subtitle, onClose, children, footer }: { title: string; subtitle?: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode }) {
   const titleId = useId()

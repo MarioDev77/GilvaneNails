@@ -150,7 +150,7 @@ export default function AgendaView({ api, services, clients, notify, onChanged, 
   )
 
   return (
-    <div className="pb-24 md:pb-0">
+    <div>
       {/* topo */}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-xl bg-white p-1 ring-1 ring-line" role="tablist" aria-label="Modo de visualização">

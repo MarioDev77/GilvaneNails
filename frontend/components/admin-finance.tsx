@@ -298,9 +298,9 @@ function usePeriod() {
       ))}
       {preset === 'custom' && (
         <>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={inputCls} />
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`${inputCls} min-w-0 flex-1`} />
           <span className="text-sm text-[#9d858d]">até</span>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={inputCls} />
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`${inputCls} min-w-0 flex-1`} />
         </>
       )}
     </div>
@@ -310,9 +310,9 @@ function usePeriod() {
 
 function Stat({ label, value, hint, tone }: { label: string; value: string; hint?: string; tone?: 'good' | 'bad' }) {
   return (
-    <div className={`${card} p-5`}>
+    <div className={`${card} min-w-0 p-4 sm:p-5`}>
       <p className="text-sm text-[#9d858d]">{label}</p>
-      <p className={`mt-2 text-2xl font-bold ${tone === 'good' ? 'text-green-700' : tone === 'bad' ? 'text-red-600' : ''}`}>
+      <p className={`mt-2 break-words text-xl font-bold sm:text-2xl ${tone === 'good' ? 'text-green-700' : tone === 'bad' ? 'text-red-600' : ''}`}>
         {value}
       </p>
       {hint && <p className="mt-1 text-xs text-[#b49da3]">{hint}</p>}
@@ -399,7 +399,22 @@ export function FinanceView({ api, refreshKey }: { api: Api; refreshKey?: number
             Nenhuma movimentação neste período. Conclua atendimentos em “Agendamentos” para lançar entradas.
           </p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <ul className="divide-y divide-[#f4e9ec] md:hidden">
+            {moves.map((m) => (
+              <li key={`${m.type}-${m.id}`} className="flex items-start justify-between gap-3 px-4 py-3.5">
+                <div className="min-w-0">
+                  <p className="break-words font-medium leading-5">{m.title}</p>
+                  {m.subtitle && <p className="break-words text-xs text-[#9d858d]">{m.subtitle}</p>}
+                  <p className="mt-1 text-xs text-[#9d858d]">{dateTimeOf(m.date)} · {methodLabel(m.method)}</p>
+                </div>
+                <p className={`shrink-0 whitespace-nowrap text-right font-semibold ${m.type === 'IN' ? 'text-green-700' : 'text-red-600'}`}>
+                  {m.type === 'IN' ? '+' : '−'} {money(m.amountCents)}
+                </p>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[560px] text-left text-sm">
               <thead className="bg-[#fff8f9] text-xs uppercase tracking-wide text-[#9d858d]">
                 <tr>
@@ -426,6 +441,7 @@ export function FinanceView({ api, refreshKey }: { api: Api; refreshKey?: number
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
     </>
@@ -489,7 +505,20 @@ export function ReportsView({ api, refreshKey }: { api: Api; refreshKey?: number
         {series.length === 0 ? (
           <p className="p-8 text-center text-sm text-[#9d858d]">Sem movimentações no período.</p>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <ul className="divide-y divide-[#f4e9ec] md:hidden">
+            {series.map((r) => (
+              <li key={r.period} className="px-4 py-3.5">
+                <p className="mb-1.5 text-sm font-semibold">{fmtPeriod(r.period)}</p>
+                <dl className="grid grid-cols-3 gap-2 text-sm">
+                  <div><dt className="text-xs text-[#9d858d]">Entradas</dt><dd className="font-medium text-green-700">{money(r.incomeCents)}</dd></div>
+                  <div><dt className="text-xs text-[#9d858d]">Saídas</dt><dd className="font-medium text-red-600">{money(r.expenseCents)}</dd></div>
+                  <div><dt className="text-xs text-[#9d858d]">Resultado</dt><dd className={`font-semibold ${r.resultCents < 0 ? 'text-red-600' : ''}`}>{money(r.resultCents)}</dd></div>
+                </dl>
+              </li>
+            ))}
+          </ul>
+          <div className="hidden overflow-x-auto md:block">
             <table className="w-full min-w-[480px] text-left text-sm">
               <thead className="bg-[#fff8f9] text-xs uppercase tracking-wide text-[#9d858d]">
                 <tr>
@@ -511,6 +540,7 @@ export function ReportsView({ api, refreshKey }: { api: Api; refreshKey?: number
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 
@@ -533,8 +563,8 @@ function ListCard({ title, rows }: { title: string; rows: [string, string][] }) 
         <ul className="space-y-2 text-sm">
           {rows.map(([a, b]) => (
             <li key={a} className="flex justify-between gap-3">
-              <span className="truncate text-[#806b72]">{a}</span>
-              <span className="font-medium">{b}</span>
+              <span className="min-w-0 break-words text-[#806b72]">{a}</span>
+              <span className="shrink-0 font-medium">{b}</span>
             </li>
           ))}
         </ul>

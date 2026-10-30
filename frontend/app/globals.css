@@ -150,7 +150,15 @@
   * {
     @apply border-border outline-ring/50;
   }
+  html {
+    -webkit-text-size-adjust: 100%;
+    max-width: 100%;
+    overflow-x: clip;
+  }
   body {
+    max-width: 100%;
+    overflow-x: clip;
+    touch-action: pan-x pan-y pinch-zoom;
     @apply bg-paper font-sans text-ink;
     font-variant-numeric: tabular-nums;
   }
