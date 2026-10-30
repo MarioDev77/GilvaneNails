@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarOff, Copy, Plus, Trash2 } from 'lucide-react'
+import { CalendarOff, Check, Copy, Plus, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { addDaysKey, formatDateKey, todayKey } from '@/lib/format'
 import { Btn, inputCls } from '@/components/ui-bits'
@@ -156,9 +156,16 @@ export default function ScheduleSettings({ api, notify }: { api: Api; notify: (t
         )}
       </div>
 
-      <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 md:bottom-4">
-        <Btn size="lg" className="w-full shadow-lg" loading={busy} disabled={!dirty} onClick={save}>{dirty ? 'Salvar horários' : 'Horários salvos'}</Btn>
-      </div>
+      {dirty ? (
+        <div className="sticky bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-10 md:bottom-4">
+          <div className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-white p-2 pl-4 shadow-lg">
+            <p className="min-w-0 text-sm font-medium text-ink-soft">Você mudou os horários</p>
+            <Btn size="md" className="shrink-0" loading={busy} onClick={save}>Salvar horários</Btn>
+          </div>
+        </div>
+      ) : (
+        <p className="flex items-center justify-center gap-1.5 text-sm font-medium text-ok"><Check className="size-4" />Horários salvos</p>
+      )}
     </div>
   )
 }
