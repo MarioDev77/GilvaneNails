@@ -7,6 +7,8 @@ import {
   BOOKING_REQUEST_MARKER,
   MAX_DAYS_AHEAD,
   MAX_PENDING_PER_CLIENT,
+  MAX_PENDING_TOTAL,
+  MAX_REQUESTS_PER_HOUR,
   MIN_LEAD_MINUTES,
   SLOT_STEP_MINUTES,
   getBookingSchedule,
@@ -15,6 +17,7 @@ import {
 import { samePhone } from '@/lib/phone'
 import { hoursForDate } from '@/lib/schedule'
 import { safeManageToken } from '@/lib/manage-token'
+import { notifyOwner, prettyPhone } from '@/lib/notify'
 import { createAppointment } from '@/services/appointment.service'
 import type { AvailabilityQuery, CreatePublicBookingInput } from '@/schemas/public-booking'
 
@@ -127,6 +130,20 @@ export async function createPublicBooking(input: CreatePublicBookingInput) {
     throw new ConflictError('Esse horário não está mais disponível. Escolha outro horário.')
   }
 
+  // Limites gerais (valem para todas as clientes juntas e sobrevivem a reinício do servidor):
+  // impedem que robôs/pedidos falsos lotem a agenda da dona com horários "reservados".
+  const [pendingTotal, lastHour] = await Promise.all([
+    prisma.appointment.count({
+      where: { ownerId, status: 'SCHEDULED', notes: { startsWith: BOOKING_REQUEST_MARKER }, startsAt: { gte: new Date() } },
+    }),
+    prisma.appointment.count({
+      where: { ownerId, notes: { startsWith: BOOKING_REQUEST_MARKER }, createdAt: { gte: new Date(Date.now() - 60 * 60_000) } },
+    }),
+  ])
+  if (pendingTotal >= MAX_PENDING_TOTAL || lastHour >= MAX_REQUESTS_PER_HOUR) {
+    throw new ValidationError('Estamos com muitos pedidos aguardando confirmação no momento. Tente novamente mais tarde ou fale com a Gilvane.')
+  }
+
   // Reaproveita a cliente pelo telefone (ignorando máscara: "(75) 99999-9999" == "75999999999").
   let client = await findClientByPhone(ownerId, input.phone)
 
@@ -173,6 +190,12 @@ export async function createPublicBooking(input: CreatePublicBookingInput) {
     }
     throw e
   }
+
+  // Avisa a dona (Telegram/e-mail, se configurado). Falha no aviso nunca atrapalha o pedido.
+  await notifyOwner(
+    '🔔 Novo pedido de horário',
+    `${input.name} (${prettyPhone(input.phone)})\n${service.name} · ${formatLocal(startsAt, 'dd/MM')} às ${formatLocal(startsAt, 'HH:mm')}\nConfirme ou recuse em Solicitações.`
+  ).catch(() => {})
 
   // Resposta mínima: nada de dados de clientes na rota pública.
   return {

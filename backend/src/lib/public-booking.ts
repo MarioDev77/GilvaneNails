@@ -16,6 +16,8 @@ export const MIN_LEAD_MINUTES = 120 // antecedência mínima para pedir um horá
 export const MANAGE_MIN_LEAD_MINUTES = 120 // antecedência mínima para a cliente remarcar/cancelar pelo link
 export const MAX_DAYS_AHEAD = 60 // até quantos dias à frente o cliente pode agendar
 export const MAX_PENDING_PER_CLIENT = 3 // solicitações pendentes por telefone
+export const MAX_PENDING_TOTAL = 30 // pedidos online aguardando resposta, somando todas as clientes
+export const MAX_REQUESTS_PER_HOUR = 20 // pedidos online novos por hora, somando todas as clientes
 
 export async function getPublicOwnerId(): Promise<string> {
   const email = process.env.PUBLIC_BOOKING_OWNER_EMAIL?.trim().toLowerCase()

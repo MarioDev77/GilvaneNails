@@ -3,6 +3,7 @@ import { ConflictError, NotFoundError, ValidationError } from '@/lib/auth'
 import { formatLocal } from '@/lib/dates'
 import { BOOKING_REQUEST_MARKER, MANAGE_MIN_LEAD_MINUTES, getPublicOwnerId } from '@/lib/public-booking'
 import { isValidManageToken } from '@/lib/manage-token'
+import { notifyOwner, prettyPhone } from '@/lib/notify'
 import { assertDateInWindow, computeSlots } from '@/services/public-booking.service'
 import { updateAppointment } from '@/services/appointment.service'
 
@@ -25,7 +26,7 @@ async function loadManaged(id: string, token: string) {
     where: { id, ownerId },
     include: {
       service: { select: { name: true, durationMinutes: true } },
-      client: { select: { name: true } },
+      client: { select: { name: true, phone: true } },
     },
   })
   if (!appt) throw new NotFoundError(INVALID_LINK)
@@ -83,6 +84,10 @@ export async function cancelManagedBooking(id: string, token: string) {
     data: { status: 'CANCELLED', notes },
   })
   if (res.count === 0) throw new ConflictError('Este horário já foi alterado. Atualize a página.')
+  await notifyOwner(
+    '❌ Cliente cancelou o horário',
+    `${appt.client.name} (${prettyPhone(appt.client.phone)})\n${appt.service.name} · ${formatLocal(appt.startsAt, 'dd/MM')} às ${formatLocal(appt.startsAt, 'HH:mm')}\nO horário já ficou livre.`
+  ).catch(() => {})
   return { status: 'CANCELLED' as const }
 }
 
@@ -115,6 +120,10 @@ export async function rescheduleManagedBooking(id: string, token: string, starts
       status: 'SCHEDULED',
       notes,
     })
+    await notifyOwner(
+      '🔁 Cliente remarcou o horário',
+      `${appt.client.name} (${prettyPhone(appt.client.phone)})\n${appt.service.name}\nDe ${formatLocal(appt.startsAt, 'dd/MM')} às ${formatLocal(appt.startsAt, 'HH:mm')} para ${formatLocal(startsAt, 'dd/MM')} às ${formatLocal(startsAt, 'HH:mm')}\nAguardando sua confirmação em Solicitações.`
+    ).catch(() => {})
     return { status: updated.status, startsAt: updated.startsAt, endsAt: updated.endsAt, service: { name: updated.service.name } }
   } catch (e) {
     // A mensagem de conflito do painel cita o nome de quem ocupa o horário: não pode vazar na rota pública.
