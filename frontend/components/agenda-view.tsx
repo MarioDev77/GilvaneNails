@@ -22,11 +22,24 @@ type Appt = {
   service: { id: string; name: string; durationMinutes: number }
 }
 
+type DayHours = { start: string; end: string; breakStart?: string; breakEnd?: string }
+
 const isOpen = (a: Appt) => a.status === 'SCHEDULED' || a.status === 'CONFIRMED'
 const ONLINE = '[Solicitação online]'
 const cleanNotes = (n: string | null) => (n ?? '').replace(ONLINE, '').trim()
 const minutes = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5))
 const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+
+/** Mensagem pronta do WhatsApp: pede confirmação (agendado) ou lembra do horário (confirmado). */
+function reminderText(a: Appt) {
+  const first = a.client.name.trim().split(' ')[0]
+  const key = toDateKey(a.startsAt)
+  const when = key === todayKey() ? 'hoje' : key === addDaysKey(todayKey(), 1) ? 'amanhã' : formatDateKey(key)
+  const time = toTimeKey(a.startsAt)
+  return a.status === 'SCHEDULED'
+    ? `Oi, ${first}! Passando pra confirmar seu horário de ${a.service.name} ${when} às ${time}. Está tudo certo pra você?`
+    : `Oi, ${first}! Lembrete: seu horário de ${a.service.name} é ${when} às ${time}. Te espero!`
+}
 
 function weekOf(key: string) {
   const [y, m, d] = key.split('-').map(Number)
@@ -363,7 +376,7 @@ function ApptCard({ a, showDate, selecting, checked, onToggle, onComplete, onReb
           {locked && <span className="hidden text-[13px] text-ink-mute sm:inline">Valor lançado no financeiro</span>}
           <div className="ml-auto flex items-center gap-1">
             {open && a.client.phone && (
-              <a href={whatsappLink(a.client.phone)} target="_blank" rel="noreferrer" aria-label={`WhatsApp de ${a.client.name}`} className="flex size-9 items-center justify-center rounded-xl text-ok hover:bg-ok-soft"><MessageCircle className="size-[18px]" /></a>
+              <a href={whatsappLink(a.client.phone, reminderText(a))} target="_blank" rel="noreferrer" aria-label={`${a.status === 'SCHEDULED' ? 'Pedir confirmação' : 'Enviar lembrete'} no WhatsApp para ${a.client.name}`} title={a.status === 'SCHEDULED' ? 'Pedir confirmação no WhatsApp' : 'Enviar lembrete no WhatsApp'} className="flex size-9 items-center justify-center rounded-xl text-ok hover:bg-ok-soft"><MessageCircle className="size-[18px]" /></a>
             )}
             {open && <Btn variant="ghost" size="sm" aria-label="Editar" onClick={onEdit} className="!px-2.5"><Pencil className="size-4" /></Btn>}
             <div className="relative">
@@ -452,7 +465,32 @@ function ApptForm({ api, services, clients, appt, rebook, defaultDate, onClose, 
   const chosen = time ? clash(minutes(time)) : undefined
   const inPast = !!time && !appt && new Date(toISO(date, time)).getTime() < Date.now()
   const nowMin = date === todayKey() ? minutes(toTimeKey(new Date())) : -1
-  const freeTimes = useMemo(() => { const out: string[] = []; for (let m = 8 * 60; m <= 19 * 60; m += 30) if (m > nowMin && !clash(m)) out.push(hhmm(m)); return out }, [busyRanges, duration, nowMin]) // eslint-disable-line react-hooks/exhaustive-deps
+  // Expediente salvo em Configurações (mesma regra da agenda online): horas cheias, do abrir ao fechar
+  const [sched, setSched] = useState<{ week: Array<DayHours | null>; overrides: Record<string, DayHours | null> } | null>(null)
+  useEffect(() => {
+    let off = false
+    api('/api/settings').then((r) => { if (!off) setSched(r?.openingHours ?? null) }).catch(() => {})
+    return () => { off = true }
+  }, [api])
+  const dayHours = useMemo<DayHours | null>(() => {
+    if (!sched) return null
+    const ov = sched.overrides ?? {}
+    if (Object.prototype.hasOwnProperty.call(ov, date)) return ov[date]
+    return sched.week[new Date(`${date}T12:00:00Z`).getUTCDay()] ?? null
+  }, [sched, date])
+  const freeTimes = useMemo(() => {
+    const out: string[] = []
+    if (!dayHours) return out
+    const open = minutes(dayHours.start), close = minutes(dayHours.end)
+    const lunchS = dayHours.breakStart ? minutes(dayHours.breakStart) : -1
+    const lunchE = dayHours.breakEnd ? minutes(dayHours.breakEnd) : -1
+    for (let m = open; m + duration <= close; m += 60) {
+      if (m <= nowMin || clash(m)) continue
+      if (lunchS >= 0 && m < lunchE && m + duration > lunchS) continue
+      out.push(hhmm(m))
+    }
+    return out
+  }, [busyRanges, duration, nowMin, dayHours]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function pickService(id: string) {
     setServiceId(id)
@@ -547,6 +585,7 @@ function ApptForm({ api, services, clients, appt, rebook, defaultDate, onClose, 
           )}
           {busyRanges.length > 0 && <p className="mt-2.5 text-xs text-ink-mute">Já marcado: {busyRanges.map((r) => `${hhmm(r.s)}–${hhmm(r.e)} ${r.who}`).join(' · ')}</p>}
           {dayAppts !== null && busyRanges.length === 0 && <p className="mt-2.5 text-xs text-ink-mute">Nenhum atendimento marcado neste dia.</p>}
+          {sched && !dayHours && <p className="mt-2.5 text-xs text-ink-mute">Dia fechado na agenda online. Você ainda pode digitar um horário acima.</p>}
         </div>
 
         <div>

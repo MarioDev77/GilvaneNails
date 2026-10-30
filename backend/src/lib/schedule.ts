@@ -38,8 +38,8 @@ export const scheduleSchema = z.object({
 
 export type Schedule = z.infer<typeof scheduleSchema>
 
-// Padrão: segunda a sábado, das 09:00 às 18:00.
-const DEFAULT_DAY: DayHours = { start: '09:00', end: '18:00' }
+// Padrão: segunda a sábado, a partir das 13:00 (último horário de início às 18:00, por isso fecha às 19:00).
+const DEFAULT_DAY: DayHours = { start: '13:00', end: '19:00' }
 export const DEFAULT_SCHEDULE: Schedule = {
   week: [null, DEFAULT_DAY, DEFAULT_DAY, DEFAULT_DAY, DEFAULT_DAY, DEFAULT_DAY, DEFAULT_DAY],
   overrides: {},

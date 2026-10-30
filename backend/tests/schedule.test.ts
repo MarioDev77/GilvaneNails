@@ -3,8 +3,8 @@ import { DEFAULT_SCHEDULE, hoursForDate, parseSchedule, pruneOverrides, schedule
 
 // 2026-11-02 é segunda-feira; 2026-11-01 é domingo
 describe('horário de atendimento', () => {
-  it('padrão: segunda a sábado 09–18, domingo fechado', () => {
-    expect(hoursForDate(DEFAULT_SCHEDULE, '2026-11-02')).toEqual({ start: '09:00', end: '18:00' })
+  it('padrão: segunda a sábado 13–19, domingo fechado', () => {
+    expect(hoursForDate(DEFAULT_SCHEDULE, '2026-11-02')).toEqual({ start: '13:00', end: '19:00' })
     expect(hoursForDate(DEFAULT_SCHEDULE, '2026-11-01')).toBeNull()
   })
   it('o modelo semanal se repete em todas as semanas', () => {
@@ -14,7 +14,7 @@ describe('horário de atendimento', () => {
     const s = { ...DEFAULT_SCHEDULE, overrides: { '2026-11-02': null, '2026-11-03': { start: '08:00', end: '12:00' } } }
     expect(hoursForDate(s, '2026-11-02')).toBeNull()
     expect(hoursForDate(s, '2026-11-03')).toEqual({ start: '08:00', end: '12:00' })
-    expect(hoursForDate(s, '2026-11-09')).toEqual({ start: '09:00', end: '18:00' })
+    expect(hoursForDate(s, '2026-11-09')).toEqual({ start: '13:00', end: '19:00' })
   })
   it('lê o formato antigo { start, end, days }', () => {
     const s = parseSchedule({ start: '08:00', end: '17:00', days: [1, 2, 3, 4, 5] })

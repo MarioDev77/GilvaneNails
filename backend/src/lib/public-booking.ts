@@ -11,7 +11,7 @@ import { parseSchedule, type Schedule } from '@/lib/schedule'
 // É assim que o painel identifica "solicitações" sem precisar alterar o banco.
 export const BOOKING_REQUEST_MARKER = '[Solicitação online]'
 
-export const SLOT_STEP_MINUTES = 30 // intervalo entre horários exibidos
+export const SLOT_STEP_MINUTES = 60 // intervalo entre horários exibidos (só horas cheias: 13:00, 14:00...)
 export const MIN_LEAD_MINUTES = 120 // antecedência mínima para pedir um horário
 export const MAX_DAYS_AHEAD = 60 // até quantos dias à frente o cliente pode agendar
 export const MAX_PENDING_PER_CLIENT = 3 // solicitações pendentes por telefone

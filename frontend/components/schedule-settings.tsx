@@ -14,7 +14,7 @@ const DAYS: { idx: number; label: string }[] = [
   { idx: 1, label: 'Segunda-feira' }, { idx: 2, label: 'Terça-feira' }, { idx: 3, label: 'Quarta-feira' },
   { idx: 4, label: 'Quinta-feira' }, { idx: 5, label: 'Sexta-feira' }, { idx: 6, label: 'Sábado' }, { idx: 0, label: 'Domingo' },
 ]
-const NEW_DAY = { start: '09:00', end: '18:00' }
+const NEW_DAY = { start: '13:00', end: '19:00' }
 
 /** Mensagem de erro para um dia, ou null se estiver certo. */
 function check(d: NonNullable<Day>): string | null {
