@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { BarChart3, CalendarDays, CircleDollarSign, Clock, Copy, Eye, EyeOff, Home, Inbox, LogOut, Menu, MessageCircle, Plus, Settings, Sparkles, Wallet, Check, ClipboardList, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { formatBRL, formatDateKey, greeting, toDateKey, toTimeKey, whatsappLink } from '@/lib/format'
+import { formatBRL, formatDateKey, greeting, toDateKey, toTimeKey, whatsappLink, manageLink } from '@/lib/format'
 import { FinanceView, ReportsView } from '@/components/admin-finance'
 import AgendaView from '@/components/agenda-view'
 import ScheduleSettings from '@/components/schedule-settings'
@@ -197,7 +197,7 @@ function Requests({ api, notify, onChanged, refreshKey }: { api: Api; notify: (t
       })}
       {tell && (() => {
         const first = String(tell.client?.name || '').split(' ')[0]
-        const msg = `Oi, ${first}! Seu horário de ${tell.service?.name} está confirmado para ${formatDateKey(toDateKey(tell.startsAt))} às ${toTimeKey(tell.startsAt)}. Te espero!`
+        const msg = `Oi, ${first}! Seu horário de ${tell.service?.name} está confirmado para ${formatDateKey(toDateKey(tell.startsAt))} às ${toTimeKey(tell.startsAt)}. Te espero!${manageLink(tell.id, tell.manageToken) ? `\n\nSe precisar remarcar ou cancelar, é por aqui: ${manageLink(tell.id, tell.manageToken)}` : ''}`
         return (
           <Modal title="Horário confirmado" subtitle={`${tell.client?.name} · ${formatDateKey(toDateKey(tell.startsAt))} às ${toTimeKey(tell.startsAt)}`} onClose={() => setTell(null)}
             footer={<div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end"><Btn variant="outline" size="lg" onClick={() => setTell(null)}>Agora não</Btn><a href={whatsappLink(tell.client.phone, msg)} target="_blank" rel="noreferrer" onClick={() => setTell(null)} className="inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-ok px-5 text-[15px] font-semibold text-white hover:brightness-95"><MessageCircle className="size-5" />Avisar no WhatsApp</a></div>}>

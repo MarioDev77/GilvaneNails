@@ -13,6 +13,7 @@ export const BOOKING_REQUEST_MARKER = '[Solicitação online]'
 
 export const SLOT_STEP_MINUTES = 60 // intervalo entre horários exibidos (só horas cheias: 13:00, 14:00...)
 export const MIN_LEAD_MINUTES = 120 // antecedência mínima para pedir um horário
+export const MANAGE_MIN_LEAD_MINUTES = 120 // antecedência mínima para a cliente remarcar/cancelar pelo link
 export const MAX_DAYS_AHEAD = 60 // até quantos dias à frente o cliente pode agendar
 export const MAX_PENDING_PER_CLIENT = 3 // solicitações pendentes por telefone
 

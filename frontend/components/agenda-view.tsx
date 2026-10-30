@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarDays, Check, CheckCheck, ChevronLeft, ChevronRight, ClipboardList, MessageCircle, MoreVertical, Pencil, Plus, Search, Trash2, Undo2, UserX, X, Ban, RotateCcw, CalendarPlus } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { addDaysKey, formatBRL, formatDateKey, formatLongDate, moneyToInput, parseMoney, toDateKey, toISO, toTimeKey, todayKey, whatsappLink } from '@/lib/format'
+import { addDaysKey, formatBRL, formatDateKey, formatLongDate, moneyToInput, parseMoney, toDateKey, toISO, toTimeKey, todayKey, whatsappLink, manageLink } from '@/lib/format'
 import { APPT_STATUS, Btn, ConfirmDialog, Empty, Modal, Pill, inputCls, labelCls } from '@/components/ui-bits'
 import { CloseDayPanel, METHODS } from '@/components/admin-finance'
 
@@ -18,6 +18,7 @@ type Appt = {
   agreedPriceCents: number
   notes: string | null
   serviceId: string
+  manageToken?: string
   client: { id: string; name: string; phone: string }
   service: { id: string; name: string; durationMinutes: number }
 }
@@ -36,9 +37,11 @@ function reminderText(a: Appt) {
   const key = toDateKey(a.startsAt)
   const when = key === todayKey() ? 'hoje' : key === addDaysKey(todayKey(), 1) ? 'amanhã' : formatDateKey(key)
   const time = toTimeKey(a.startsAt)
-  return a.status === 'SCHEDULED'
+  const link = manageLink(a.id, a.manageToken)
+  const change = link ? `\n\nSe precisar remarcar ou cancelar, é por aqui: ${link}` : ''
+  return (a.status === 'SCHEDULED'
     ? `Oi, ${first}! Passando pra confirmar seu horário de ${a.service.name} ${when} às ${time}. Está tudo certo pra você?`
-    : `Oi, ${first}! Lembrete: seu horário de ${a.service.name} é ${when} às ${time}. Te espero!`
+    : `Oi, ${first}! Lembrete: seu horário de ${a.service.name} é ${when} às ${time}. Te espero!`) + change
 }
 
 function weekOf(key: string) {

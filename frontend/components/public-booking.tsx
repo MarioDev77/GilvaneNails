@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button'
 
 type Service = { id: string; name: string; description?: string | null; priceCents: number; durationMinutes: number }
 type Slot = { startsAt: string; time: string }
-type Done = { startsAt: string; service: { name: string } }
+type Done = { startsAt: string; service: { name: string }; manageUrl?: string }
 
 const money = (c: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format((c || 0) / 100)
@@ -116,7 +116,11 @@ export default function PublicBooking() {
           website: website || undefined,
         }),
       })
-      setDone({ startsAt: data?.startsAt || slot, service: { name: data?.service?.name || service?.name || '' } })
+      setDone({
+        startsAt: data?.startsAt || slot,
+        service: { name: data?.service?.name || service?.name || '' },
+        manageUrl: data?.id && data?.manageToken ? `/agendar/meu-horario?id=${encodeURIComponent(data.id)}&t=${encodeURIComponent(data.manageToken)}` : undefined,
+      })
     } catch (err: any) {
       setError(err.message)
       setTimeout(() => errorRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 60)
@@ -154,6 +158,13 @@ export default function PublicBooking() {
           <p className="mt-4 rounded-xl bg-[#fff5f7] p-3 text-sm text-[#806b72]">
             Seu horário está reservado e aguardando a confirmação da Gilvane. Ela vai entrar em contato pelo telefone informado.
           </p>
+          {done.manageUrl && (
+            <p className="mt-4 text-sm text-[#806b72]">
+              Precisa mudar de ideia?{' '}
+              <a href={done.manageUrl} className="font-semibold text-[#c94f6c] underline">Remarcar ou cancelar meu horário</a>
+              <span className="mt-1 block text-xs text-[#b49da3]">Salve esta página nos favoritos: o link é só seu.</span>
+            </p>
+          )}
         </div>
       </main>
     )

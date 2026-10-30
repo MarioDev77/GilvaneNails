@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma'
 import { NotFoundError, ConflictError, ValidationError } from '@/lib/auth'
 import { calculateEndsAt, getDayBounds } from '@/lib/dates'
 import { conflictMessage, findOverlap } from '@/lib/conflicts'
+import { safeManageToken } from '@/lib/manage-token'
 import type {
   CreateAppointmentInput,
   UpdateAppointmentInput,
@@ -177,7 +178,8 @@ export async function listAppointments(ownerId: string, params: ListAppointments
   ])
 
   return {
-    items,
+    // manageToken: usado pelo painel para montar o link "remarcar ou cancelar" da cliente
+    items: items.map((i) => ({ ...i, manageToken: safeManageToken(i.id) })),
     pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
   }
 }

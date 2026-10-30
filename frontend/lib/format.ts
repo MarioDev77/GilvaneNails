@@ -100,6 +100,12 @@ export function whatsappLink(phone: string, text?: string) {
   return `https://wa.me/${full}${text ? `?text=${encodeURIComponent(text)}` : ''}`
 }
 
+/** Link para a cliente remarcar ou cancelar o próprio horário (a página pública fica no mesmo site). */
+export function manageLink(id: string, token?: string | null) {
+  if (!token || typeof location === 'undefined') return ''
+  return `${location.origin}/agendar/meu-horario?id=${encodeURIComponent(id)}&t=${encodeURIComponent(token)}`
+}
+
 export const STATUS_LABEL: Record<string, string> = {
   SCHEDULED: 'Agendado',
   CONFIRMED: 'Confirmado',

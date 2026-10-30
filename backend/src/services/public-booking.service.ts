@@ -14,6 +14,7 @@ import {
 } from '@/lib/public-booking'
 import { samePhone } from '@/lib/phone'
 import { hoursForDate } from '@/lib/schedule'
+import { safeManageToken } from '@/lib/manage-token'
 import { createAppointment } from '@/services/appointment.service'
 import type { AvailabilityQuery, CreatePublicBookingInput } from '@/schemas/public-booking'
 
@@ -23,7 +24,7 @@ function localToUtc(date: string, hhmm: string): Date {
   return fromZonedTime(`${date}T${hhmm}:00`, TIMEZONE)
 }
 
-function assertDateInWindow(date: string) {
+export function assertDateInWindow(date: string) {
   const today = formatLocal(new Date(), 'yyyy-MM-dd')
   const last = formatLocal(addDays(new Date(), MAX_DAYS_AHEAD), 'yyyy-MM-dd')
   if (date < today || date > last) {
@@ -31,7 +32,8 @@ function assertDateInWindow(date: string) {
   }
 }
 
-async function computeSlots(ownerId: string, durationMinutes: number, date: string) {
+/** `ignoreAppointmentId`: ao remarcar, o próprio horário da cliente não conta como ocupado. */
+export async function computeSlots(ownerId: string, durationMinutes: number, date: string, ignoreAppointmentId?: string) {
   // Modelo semanal + exceções do dia; null = fechado
   const day = hoursForDate(await getBookingSchedule(ownerId), date)
   if (!day) return []
@@ -48,6 +50,7 @@ async function computeSlots(ownerId: string, durationMinutes: number, date: stri
     where: {
       ownerId,
       status: { in: [...ACTIVE_STATUSES] },
+      ...(ignoreAppointmentId ? { id: { not: ignoreAppointmentId } } : {}),
       startsAt: { lt: close },
       endsAt: { gt: open },
     },
@@ -173,6 +176,8 @@ export async function createPublicBooking(input: CreatePublicBookingInput) {
 
   // Resposta mínima: nada de dados de clientes na rota pública.
   return {
+    id: appointment.id,
+    manageToken: safeManageToken(appointment.id), // link de remarcar/cancelar da própria cliente
     startsAt: appointment.startsAt,
     endsAt: appointment.endsAt,
     service: { name: service.name },

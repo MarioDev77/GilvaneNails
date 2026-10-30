@@ -23,5 +23,23 @@ export const createPublicBookingSchema = z.object({
   website: z.string().max(200).optional(),
 })
 
+// Remarcar / cancelar pelo link: id do agendamento + token assinado (ver lib/manage-token.ts)
+const manageToken = z.string().trim().min(16, 'Link inválido').max(64, 'Link inválido')
+
+export const manageQuerySchema = z.object({ id: idSchema, t: manageToken })
+
+export const manageSlotsQuerySchema = manageQuerySchema.extend({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Data inválida'),
+})
+
+export const manageCancelSchema = z.object({ id: idSchema, t: manageToken })
+
+export const manageRescheduleSchema = z.object({
+  id: idSchema,
+  t: manageToken,
+  startsAt: z.string().datetime({ offset: true }),
+})
+
 export type AvailabilityQuery = z.infer<typeof availabilityQuerySchema>
 export type CreatePublicBookingInput = z.infer<typeof createPublicBookingSchema>
+export type ManageRescheduleInput = z.infer<typeof manageRescheduleSchema>
