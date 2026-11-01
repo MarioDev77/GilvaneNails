@@ -48,3 +48,18 @@ describe('getDayBounds / getMonthBounds (America/Bahia, UTC-3)', () => {
     expect(end.toISOString()).toBe('2026-11-01T02:59:59.999Z')
   })
 })
+
+describe('getDayBounds: dia local independe do fuso do servidor', () => {
+  it('2026-11-03 vai de 00:00 a 23:59:59.999 da Bahia (03:00Z → 02:59:59.999Z do dia seguinte)', () => {
+    const { start, end } = getDayBounds('2026-11-03')
+    expect(start.toISOString()).toBe('2026-11-03T03:00:00.000Z')
+    expect(end.toISOString()).toBe('2026-11-04T02:59:59.999Z')
+  })
+  it('dias consecutivos não se sobrepõem (mesmo horário em outro dia não entra no dia)', () => {
+    const d1 = getDayBounds('2026-11-03')
+    const d2 = getDayBounds('2026-11-04')
+    const at14 = new Date('2026-11-03T17:00:00Z') // 14:00 da Bahia no dia 3
+    expect(at14 >= d1.start && at14 <= d1.end).toBe(true)
+    expect(at14 >= d2.start && at14 <= d2.end).toBe(false)
+  })
+})

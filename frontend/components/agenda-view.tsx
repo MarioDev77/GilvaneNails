@@ -463,9 +463,17 @@ function ApptForm({ api, services, clients, appt, rebook, defaultDate, onClose, 
     return () => { off = true }
   }, [api, date, appt?.id])
 
-  const busyRanges = useMemo(() => (dayAppts ?? []).map((x) => ({ s: minutes(toTimeKey(x.startsAt)), e: minutes(toTimeKey(x.endsAt)) || 1440, who: x.client.name })).sort((a, b) => a.s - b.s), [dayAppts])
-  const clash = (start: number) => busyRanges.find((r) => start < r.e && start + duration > r.s)
-  const chosen = time ? clash(minutes(time)) : undefined
+  // Horários ocupados NAQUELE dia. Compara instantes completos (data + hora), nunca só a hora do relógio:
+  // assim um agendamento de outro dia jamais bloqueia o mesmo horário em outra data.
+  const busyRanges = useMemo(() => (dayAppts ?? [])
+    .filter((x) => isOpen(x) && x.id !== appt?.id)
+    .map((x) => ({ s: new Date(x.startsAt).getTime(), e: new Date(x.endsAt).getTime(), who: x.client.name, from: toTimeKey(x.startsAt), to: toTimeKey(x.endsAt) }))
+    .sort((a, b) => a.s - b.s), [dayAppts, appt?.id])
+  const clash = (t: string) => {
+    const start = new Date(toISO(date, t)).getTime()
+    return busyRanges.find((r) => start < r.e && start + duration * 60_000 > r.s)
+  }
+  const chosen = time ? clash(time) : undefined
   const inPast = !!time && !appt && new Date(toISO(date, time)).getTime() < Date.now()
   const nowMin = date === todayKey() ? minutes(toTimeKey(new Date())) : -1
   // Expediente salvo em Configurações (mesma regra da agenda online): horas cheias, do abrir ao fechar
@@ -488,7 +496,7 @@ function ApptForm({ api, services, clients, appt, rebook, defaultDate, onClose, 
     const lunchS = dayHours.breakStart ? minutes(dayHours.breakStart) : -1
     const lunchE = dayHours.breakEnd ? minutes(dayHours.breakEnd) : -1
     for (let m = open; m + duration <= close; m += 60) {
-      if (m <= nowMin || clash(m)) continue
+      if (m <= nowMin || clash(hhmm(m))) continue
       if (lunchS >= 0 && m < lunchE && m + duration > lunchS) continue
       out.push(hhmm(m))
     }
@@ -567,14 +575,14 @@ function ApptForm({ api, services, clients, appt, rebook, defaultDate, onClose, 
           </div>
           <div>
             <label className={labelCls} htmlFor="c-time">Horário</label>
-            <input id="c-time" type="time" step={300} value={time} onChange={(e) => setTime(e.target.value)} className={cn(inputCls, chosen && 'border-bad focus:border-bad focus:ring-bad/10')} />
+            <input id="c-time" type="time" step={time && !time.endsWith(':00') ? 300 : 3600} value={time} onChange={(e) => setTime(e.target.value)} className={cn(inputCls, chosen && 'border-bad focus:border-bad focus:ring-bad/10')} />
           </div>
         </div>
 
         {/* disponibilidade do dia */}
         <div className="rounded-2xl bg-paper p-3.5">
           {chosen ? (
-            <p role="alert" className="text-sm font-medium text-bad">Esse horário está ocupado por {chosen.who} ({hhmm(chosen.s)}–{hhmm(chosen.e)}). Escolha outro.</p>
+            <p role="alert" className="text-sm font-medium text-bad">Esse horário está ocupado por {chosen.who} ({chosen.from}–{chosen.to}). Escolha outro.</p>
           ) : (
             <p className="text-sm text-ink-soft">{dayAppts === null ? 'Conferindo a agenda do dia…' : time ? `Horário livre em ${formatDateKey(date)}.` : 'Toque em um horário livre ou digite acima.'}</p>
           )}
@@ -586,7 +594,7 @@ function ApptForm({ api, services, clients, appt, rebook, defaultDate, onClose, 
               ))}
             </div>
           )}
-          {busyRanges.length > 0 && <p className="mt-2.5 text-xs text-ink-mute">Já marcado: {busyRanges.map((r) => `${hhmm(r.s)}–${hhmm(r.e)} ${r.who}`).join(' · ')}</p>}
+          {busyRanges.length > 0 && <p className="mt-2.5 text-xs text-ink-mute">Já marcado: {busyRanges.map((r) => `${r.from}–${r.to} ${r.who}`).join(' · ')}</p>}
           {dayAppts !== null && busyRanges.length === 0 && <p className="mt-2.5 text-xs text-ink-mute">Nenhum atendimento marcado neste dia.</p>}
           {sched && !dayHours && <p className="mt-2.5 text-xs text-ink-mute">Dia fechado na agenda online. Você ainda pode digitar um horário acima.</p>}
         </div>

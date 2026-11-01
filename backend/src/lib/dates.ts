@@ -38,6 +38,13 @@ function toLocalReference(date: Date | string, timezone: string): Date {
 }
 
 export function getDayBounds(date: Date | string, timezone = TIMEZONE) {
+  // "YYYY-MM-DD": limites do dia calculados direto no fuso da Bahia, sem depender do fuso do servidor.
+  if (typeof date === 'string' && DATE_ONLY.test(date)) {
+    return {
+      start: fromZonedTime(`${date}T00:00:00.000`, timezone),
+      end: fromZonedTime(`${date}T23:59:59.999`, timezone),
+    }
+  }
   const local = toLocalReference(date, timezone)
   const start = fromZonedTime(startOfDay(local), timezone)
   const end = fromZonedTime(endOfDay(local), timezone)
